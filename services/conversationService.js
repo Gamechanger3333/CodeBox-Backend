@@ -1,66 +1,69 @@
 const prisma = require('../models/prismaClient');
-const { getTogetherAIResponse } = require('../utils/togetherAI');
+const { getCodeBoxAIResponse, generateConversationTitle } = require('../utils/codeboxAI');
 
-// Function to start a new conversation
+// Start a new conversation
 exports.startConversation = async (userId) => {
-  try {
-    const conversation = await prisma.conversation.create({
-      data: {
-        userId: userId, // Associate the conversation with the user ID
-      },
-    });
-    return conversation; // Return the created conversation object
-  } catch (error) {
-    console.error('Error starting conversation:', error);
-    throw error; // Throw error for handling in controller or service layer
-  }
+  const conversation = await prisma.conversation.create({
+    data: { userId },
+  });
+  return conversation;
 };
 
-exports.getAllConversationIds = async() => {
-  try {
-    const conversationIds = await prisma.conversationIdOnly.findMany();
-    return conversationIds.map((conversation) => conversation.id);
-  } catch (error) {
-    console.error('Error fetching conversation IDs:', error);
-    throw error;
-  } finally {
-    await prisma.$disconnect();
-  }
-}
+// Get all conversation IDs (legacy)
+exports.getAllConversationIds = async () => {
+  const ids = await prisma.conversationIdOnly.findMany();
+  return ids.map((c) => c.id);
+};
 
-
-
-
+// Send a message — uses full conversation history for context
 exports.sendMessage = async (conversationId, message, sender) => {
-
-
-
   if (!conversationId || !message || !sender) {
     throw new Error('Missing conversationId, message, or sender');
   }
-  
 
-
-  const botResponse = await getTogetherAIResponse(message);
-
-  await prisma.message.create({
-    data: {
-      conversationId,
-      sender,
-      content: message,
-    },
+  // Fetch existing messages for context
+  const existingMessages = await prisma.message.findMany({
+    where: { conversationId },
+    orderBy: { createdAt: 'asc' },
   });
 
+  // Build full history including the new message
+  const fullHistory = [
+    ...existingMessages.map(m => ({ sender: m.sender, content: m.content })),
+    { sender: 'user', content: message },
+  ];
+
+  // Get AI response with full context
+  const botResponse = await getCodeBoxAIResponse(fullHistory);
+
+  // Save user message
   await prisma.message.create({
-    data: {
-      conversationId,
-      sender: 'bot',
-      content: botResponse,
-    },
+    data: { conversationId, sender, content: message },
   });
+
+  // Save bot response
+  await prisma.message.create({
+    data: { conversationId, sender: 'bot', content: botResponse },
+  });
+
+  // Auto-generate title if this is the first message
+  if (existingMessages.length === 0) {
+    try {
+      const title = await generateConversationTitle(message);
+      await prisma.conversation.update({
+        where: { id: conversationId },
+        data: { title },
+      });
+    } catch (e) {
+      // Title generation is non-critical
+      console.error('Title generation failed:', e.message);
+    }
+  }
+
   return botResponse;
 };
 
+// Get all messages in a conversation
 exports.getConversation = async (conversationId) => {
   return prisma.message.findMany({
     where: { conversationId },
@@ -68,21 +71,9 @@ exports.getConversation = async (conversationId) => {
   });
 };
 
+// Delete conversation and all its messages
 exports.deleteConversationById = async (conversationId) => {
-  try {
-    // Delete all messages associated with the conversation
-    await prisma.message.deleteMany({
-      where: { conversationId },
-    });
-
-    // Delete the conversation
-    const result = await prisma.conversation.delete({
-      where: { id: conversationId },
-    });
-
-    return { success: true, message: 'Conversation deleted successfully' };
-  } catch (error) {
-    console.error('Error in deleteConversationById:', error); // Log the error
-    return { success: false, message: error.message };
-  }
+  await prisma.message.deleteMany({ where: { conversationId } });
+  await prisma.conversation.delete({ where: { id: conversationId } });
+  return { success: true };
 };
