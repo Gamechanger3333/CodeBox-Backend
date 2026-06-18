@@ -14,6 +14,10 @@ model User {
   password      String
   avatar        String?
   bio           String?
+  isVerified    Boolean        @default(false)
+  otpCode       String?
+  otpExpiry     DateTime?
+  otpAttempts   Int            @default(0)
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   conversations Conversation[]

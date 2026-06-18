@@ -1,33 +1,15 @@
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const Groq = require('groq-sdk');
 require('dotenv').config();
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+// ============================================================
+// CODEBOX AI — Powered by Groq (Llama 3.3 70B)
+// ============================================================
+// Groq provides blazing-fast inference on open-source models.
+// We use llama-3.3-70b-versatile for the main chat (best quality)
+// and llama-3.1-8b-instant for lightweight tasks like title gen.
+// ============================================================
 
-// ============================================================
-// CODEBOX AI SYSTEM INSTRUCTIONS
-// ============================================================
-// CodeBox is an AI-powered coding assistant platform built for
-// developers. Users are programmers who need help with:
-//   - Debugging code and fixing errors
-//   - Learning new languages, frameworks, and tools
-//   - Code reviews and best practices
-//   - Algorithms, data structures, architecture decisions
-//   - Performance optimization
-//   - DevOps, deployment, databases
-//   - Open source libraries and APIs
-//
-// The AI must:
-//   1. Always respond with accurate, executable code examples
-//   2. Format code in proper markdown code blocks with language tags
-//   3. Explain WHY, not just WHAT — teach the developer
-//   4. Be concise but thorough — developers value efficiency
-//   5. Default to modern best practices
-//   6. Flag deprecated patterns or security concerns proactively
-//   7. Adapt to the user's skill level based on their questions
-//   8. Stay on-topic: programming, tech, software engineering
-//   9. For off-topic questions, politely redirect to coding topics
-//  10. Never produce harmful, malicious, or exploitative code
-// ============================================================
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 const CODEBOX_SYSTEM_PROMPT = `You are CodeBox AI — a world-class coding assistant for software developers.
 
@@ -40,7 +22,7 @@ YOUR EXPERTISE:
 - Mobile: React Native, Flutter, iOS (Swift/ObjC), Android (Kotlin/Java)  
 - Databases: PostgreSQL, MySQL, MongoDB, Redis, SQLite, Prisma, TypeORM, Mongoose
 - Cloud & DevOps: AWS, GCP, Azure, Docker, Kubernetes, CI/CD, Vercel, Railway, Heroku
-- AI/ML: PyTorch, TensorFlow, Hugging Face, LangChain, OpenAI API, Gemini API
+- AI/ML: PyTorch, TensorFlow, Hugging Face, LangChain, OpenAI API, Groq API
 - Tools: Git, GitHub Actions, Webpack, Vite, ESLint, Prettier, Jest, Pytest
 
 RESPONSE STYLE RULES:
@@ -54,7 +36,7 @@ RESPONSE STYLE RULES:
 8. Keep responses focused — no filler, no padding
 
 WHAT YOU HELP WITH:
-✅ Debugging and fixing errors (paste your error and code!)
+✅ Debugging and fixing errors
 ✅ Code reviews and improvement suggestions
 ✅ Explaining concepts with practical examples
 ✅ Architecture and design patterns
@@ -73,46 +55,40 @@ WHAT YOU DO NOT DO:
 ❌ Answer questions completely unrelated to programming/tech
 
 If a user asks something off-topic, respond:
-"I'm CodeBox AI, specialized in software development. I can help with coding questions, debugging, architecture, and all things tech! What are you building?"
-
-IMPORTANT: You are a coding assistant, not a general-purpose AI. Keep every response focused on helping the developer succeed.`;
+"I'm CodeBox AI, specialized in software development. I can help with coding questions, debugging, architecture, and all things tech! What are you building?"`;
 
 /**
- * Generate a coding-focused AI response using Gemini
- * @param {Array} messages - Array of {role, content} message history
+ * Generate a coding-focused AI response using Groq (Llama 3.3 70B)
+ * @param {Array} messages - Array of {sender, content} message history
  * @returns {string} AI response
  */
 exports.getCodeBoxAIResponse = async (messages) => {
-  const model = genAI.getGenerativeModel({ 
-    model: "gemini-2.0-flash",
-    systemInstruction: CODEBOX_SYSTEM_PROMPT,
-  });
-
-  // Build conversation history for Gemini
-  const history = messages.slice(0, -1).map(msg => ({
-    role: msg.sender === 'user' ? 'user' : 'model',
-    parts: [{ text: msg.content }],
+  // Convert our message format to OpenAI-compatible format
+  const formattedMessages = messages.map(msg => ({
+    role: msg.sender === 'user' ? 'user' : 'assistant',
+    content: msg.content,
   }));
 
-  const lastMessage = messages[messages.length - 1];
+  const completion = await groq.chat.completions.create({
+    model: 'llama-3.3-70b-versatile',
+    messages: [
+      { role: 'system', content: CODEBOX_SYSTEM_PROMPT },
+      ...formattedMessages,
+    ],
+    temperature: 0.7,
+    max_tokens: 4096,
+  });
 
-  const chat = model.startChat({ history });
-  const result = await chat.sendMessage(lastMessage.content);
-  return result.response.text();
+  return completion.choices[0]?.message?.content || 'Sorry, I could not generate a response.';
 };
 
 /**
- * Analyze uploaded code file and return insights
+ * Analyze uploaded code using Groq
  * @param {string} code - The code content
  * @param {string} filename - The filename for context
  * @returns {string} Analysis response
  */
 exports.analyzeCode = async (code, filename) => {
-  const model = genAI.getGenerativeModel({ 
-    model: "gemini-2.0-flash",
-    systemInstruction: CODEBOX_SYSTEM_PROMPT,
-  });
-
   const prompt = `Analyze the following code from file "${filename}":
 
 \`\`\`
@@ -129,30 +105,46 @@ Please provide:
 
 Be specific and actionable.`;
 
-  const result = await model.generateContent(prompt);
-  return result.response.text();
+  const completion = await groq.chat.completions.create({
+    model: 'llama-3.3-70b-versatile',
+    messages: [
+      { role: 'system', content: CODEBOX_SYSTEM_PROMPT },
+      { role: 'user', content: prompt },
+    ],
+    temperature: 0.5,
+    max_tokens: 2048,
+  });
+
+  return completion.choices[0]?.message?.content || 'Analysis failed.';
 };
 
 /**
- * Generate a conversation title from the first message
+ * Generate a conversation title using lightweight Groq model
  * @param {string} firstMessage - The user's first message
  * @returns {string} A short title for the conversation
  */
 exports.generateConversationTitle = async (firstMessage) => {
-  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-  
-  const prompt = `Generate a short, descriptive title (max 5 words) for a coding conversation that starts with this message: "${firstMessage}"
+  const completion = await groq.chat.completions.create({
+    model: 'llama-3.1-8b-instant', // Lightweight model for fast title gen
+    messages: [
+      {
+        role: 'user',
+        content: `Generate a short, descriptive title (max 5 words) for a coding conversation that starts with: "${firstMessage}"
 
 Rules:
 - Must be relevant to the coding topic
 - No quotes, no punctuation at the end
 - Capitalize first word only
-- Examples: "Python list comprehension help", "React useState hook error", "SQL join optimization", "Docker container setup"
+- Examples: "Python list comprehension help", "React useState hook error", "SQL join optimization"
 
-Return ONLY the title, nothing else.`;
+Return ONLY the title, nothing else.`,
+      },
+    ],
+    temperature: 0.3,
+    max_tokens: 20,
+  });
 
-  const result = await model.generateContent(prompt);
-  return result.response.text().trim();
+  return completion.choices[0]?.message?.content?.trim() || 'New conversation';
 };
 
 /**
@@ -161,8 +153,17 @@ Return ONLY the title, nothing else.`;
  * @returns {string} Language name
  */
 exports.detectLanguage = async (code) => {
-  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-  const prompt = `What programming language is this code written in? Reply with ONLY the language name (e.g. "Python", "JavaScript", "Rust"). Code:\n\n${code.substring(0, 500)}`;
-  const result = await model.generateContent(prompt);
-  return result.response.text().trim();
+  const completion = await groq.chat.completions.create({
+    model: 'llama-3.1-8b-instant',
+    messages: [
+      {
+        role: 'user',
+        content: `What programming language is this code written in? Reply with ONLY the language name (e.g. "Python", "JavaScript", "Rust"). Code:\n\n${code.substring(0, 500)}`,
+      },
+    ],
+    temperature: 0,
+    max_tokens: 10,
+  });
+
+  return completion.choices[0]?.message?.content?.trim() || 'Unknown';
 };
