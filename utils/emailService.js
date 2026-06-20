@@ -1,15 +1,28 @@
+// utils/emailService.js
+// Transactional email via Resend.
+//
+// Fix #11: the "from" address is now driven by EMAIL_FROM env var.
+// The hardcoded "onboarding@resend.dev" sandbox address only works in dev —
+// in production you must set a verified custom domain in Resend and point
+// EMAIL_FROM at it, e.g. "CodeBox <noreply@yourdomain.com>".
+
 const { Resend } = require('resend');
 require('dotenv').config();
 
+if (!process.env.RESEND_API_KEY) {
+  throw new Error('RESEND_API_KEY environment variable is not set. Check your .env file.');
+}
+
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-const generateOTP = () => {
-  return Math.floor(100000 + Math.random() * 900000).toString();
-};
+// Falls back to the Resend sandbox address in dev only.
+const FROM_ADDRESS = process.env.EMAIL_FROM || 'CodeBox <onboarding@resend.dev>';
+
+const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString();
 
 exports.sendPasswordResetOTP = async (email, name, otp) => {
   const { data, error } = await resend.emails.send({
-    from: 'CodeBox <onboarding@resend.dev>',
+    from: FROM_ADDRESS,
     to: email,
     subject: `${otp} — Your CodeBox Password Reset Code`,
     html: `
@@ -24,7 +37,7 @@ exports.sendPasswordResetOTP = async (email, name, otp) => {
     <tr>
       <td align="center">
         <table width="560" cellpadding="0" cellspacing="0" style="background:#111113;border-radius:16px;border:1px solid #2a2a35;overflow:hidden;">
-          
+
           <tr>
             <td style="padding:32px 40px 24px;border-bottom:1px solid #2a2a35;">
               <table cellpadding="0" cellspacing="0">

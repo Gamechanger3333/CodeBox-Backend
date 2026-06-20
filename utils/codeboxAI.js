@@ -1,15 +1,8 @@
-const Groq = require('groq-sdk');
-require('dotenv').config();
+// utils/codeboxAI.js
+// CodeBox AI — powered by Groq (Llama 3.3 70B)
+// Uses the shared groqClient singleton — never instantiate Groq directly here.
 
-// ============================================================
-// CODEBOX AI — Powered by Groq (Llama 3.3 70B)
-// ============================================================
-// Groq provides blazing-fast inference on open-source models.
-// We use llama-3.3-70b-versatile for the main chat (best quality)
-// and llama-3.1-8b-instant for lightweight tasks like title gen.
-// ============================================================
-
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+const groq = require('./groqClient');
 
 const CODEBOX_SYSTEM_PROMPT = `You are CodeBox AI — a world-class coding assistant for software developers.
 
@@ -19,7 +12,7 @@ You are an expert in all programming languages, frameworks, libraries, tools, an
 YOUR EXPERTISE:
 - All major programming languages: Python, JavaScript, TypeScript, Java, C++, C#, Go, Rust, Ruby, PHP, Swift, Kotlin, Dart, and more
 - Web frameworks: React, Next.js, Vue, Angular, Node.js, Express, Django, FastAPI, Laravel, Spring Boot, Rails
-- Mobile: React Native, Flutter, iOS (Swift/ObjC), Android (Kotlin/Java)  
+- Mobile: React Native, Flutter, iOS (Swift/ObjC), Android (Kotlin/Java)
 - Databases: PostgreSQL, MySQL, MongoDB, Redis, SQLite, Prisma, TypeORM, Mongoose
 - Cloud & DevOps: AWS, GCP, Azure, Docker, Kubernetes, CI/CD, Vercel, Railway, Heroku
 - AI/ML: PyTorch, TensorFlow, Hugging Face, LangChain, OpenAI API, Groq API
@@ -58,13 +51,17 @@ If a user asks something off-topic, respond:
 "I'm CodeBox AI, specialized in software development. I can help with coding questions, debugging, architecture, and all things tech! What are you building?"`;
 
 /**
- * Generate a coding-focused AI response using Groq (Llama 3.3 70B)
+ * Generate a coding-focused AI response using Groq (Llama 3.3 70B).
+ * Caps history at the last 30 messages to prevent unbounded context growth.
  * @param {Array} messages - Array of {sender, content} message history
  * @returns {string} AI response
  */
 exports.getCodeBoxAIResponse = async (messages) => {
-  // Convert our message format to OpenAI-compatible format
-  const formattedMessages = messages.map(msg => ({
+  // Cap history: keep last 30 messages (15 turns) to prevent context bloat
+  // and runaway Groq token costs on long conversations.
+  const capped = messages.slice(-30);
+
+  const formattedMessages = capped.map(msg => ({
     role: msg.sender === 'user' ? 'user' : 'assistant',
     content: msg.content,
   }));
@@ -83,7 +80,7 @@ exports.getCodeBoxAIResponse = async (messages) => {
 };
 
 /**
- * Analyze uploaded code using Groq
+ * Analyze uploaded code using Groq.
  * @param {string} code - The code content
  * @param {string} filename - The filename for context
  * @returns {string} Analysis response
@@ -119,13 +116,13 @@ Be specific and actionable.`;
 };
 
 /**
- * Generate a conversation title using lightweight Groq model
+ * Generate a conversation title using a lightweight Groq model.
  * @param {string} firstMessage - The user's first message
  * @returns {string} A short title for the conversation
  */
 exports.generateConversationTitle = async (firstMessage) => {
   const completion = await groq.chat.completions.create({
-    model: 'llama-3.1-8b-instant', // Lightweight model for fast title gen
+    model: 'llama-3.1-8b-instant',
     messages: [
       {
         role: 'user',
@@ -148,7 +145,7 @@ Return ONLY the title, nothing else.`,
 };
 
 /**
- * Detect programming language from a code snippet
+ * Detect programming language from a code snippet.
  * @param {string} code - Code snippet
  * @returns {string} Language name
  */

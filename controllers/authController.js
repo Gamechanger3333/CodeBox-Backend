@@ -1,17 +1,15 @@
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const { validationResult } = require('express-validator');
 const prisma = require('../models/prismaClient');
 const { sendPasswordResetOTP, generateOTP } = require('../utils/emailService');
 
-// ============================================================
-// TOKEN HELPERS
-// ============================================================
+// ── Helpers ────────────────────────────────────────────────────────────────
 
-const signToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_SECRET, {
+const signToken = (id) =>
+  jwt.sign({ id }, process.env.JWT_SECRET, {
     expiresIn: process.env.JWT_EXPIRES_IN || '7d',
   });
-};
 
 const createSendToken = (user, statusCode, res) => {
   const token = signToken(user.id);
@@ -19,39 +17,36 @@ const createSendToken = (user, statusCode, res) => {
 
   res.cookie('token', token, {
     expires: new Date(Date.now() + cookieExpiresIn * 24 * 60 * 60 * 1000),
-    // httpOnly: true so the token is never readable by JavaScript — this is
-    // what actually protects it from theft via XSS. The cookie is sent
-    // automatically by the browser on same-site requests (withCredentials:
-    // true on the frontend), so the frontend no longer needs to read it.
+    // httpOnly: JS can never read the cookie — prevents XSS token theft.
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
   });
 
   const { password, otpCode, otpExpiry, otpAttempts, ...userData } = user;
-  // The token is still echoed in the JSON body for non-browser clients
-  // (mobile apps, API consumers) that can't rely on cookies.
   res.status(statusCode).json({ status: 'success', token, data: { user: userData } });
 };
 
-// ============================================================
-// SIGNUP
-// ============================================================
+// Helper: return validation errors as a 400 if express-validator found any.
+const validate = (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    res.status(400).json({ status: 'error', message: errors.array()[0].msg });
+    return false;
+  }
+  return true;
+};
+
+// ── SIGNUP ─────────────────────────────────────────────────────────────────
 
 exports.signup = async (req, res) => {
+  if (!validate(req, res)) return;
+
   const { name, email, password, passwordConfirm } = req.body;
 
   try {
-    if (!name || !email || !password || !passwordConfirm) {
-      return res.status(400).json({ status: 'error', message: 'All fields are required' });
-    }
-
     if (password !== passwordConfirm) {
       return res.status(400).json({ status: 'error', message: 'Passwords do not match' });
-    }
-
-    if (password.length < 8) {
-      return res.status(400).json({ status: 'error', message: 'Password must be at least 8 characters' });
     }
 
     const existingUser = await prisma.user.findUnique({ where: { email } });
@@ -71,18 +66,14 @@ exports.signup = async (req, res) => {
   }
 };
 
-// ============================================================
-// LOGIN
-// ============================================================
+// ── LOGIN ──────────────────────────────────────────────────────────────────
 
 exports.login = async (req, res, next) => {
+  if (!validate(req, res)) return;
+
   const { email, password } = req.body;
 
   try {
-    if (!email || !password) {
-      return res.status(400).json({ status: 'error', message: 'Email and password are required' });
-    }
-
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
       return res.status(401).json({ status: 'error', message: 'Incorrect email or password' });
@@ -99,9 +90,8 @@ exports.login = async (req, res, next) => {
   }
 };
 
-// ============================================================
-// LOGOUT
-// ============================================================
+// ── LOGOUT ─────────────────────────────────────────────────────────────────
+// POST — not GET — to prevent CSRF logout via image/link prefetch.
 
 exports.logout = (req, res) => {
   res.cookie('token', '', {
@@ -113,21 +103,17 @@ exports.logout = (req, res) => {
   res.status(200).json({ status: 'success', message: 'Logged out successfully' });
 };
 
-// ============================================================
-// FORGOT PASSWORD — Step 1: Send OTP
-// ============================================================
+// ── FORGOT PASSWORD — Step 1: Send OTP ───────────────────────────────────
 
 exports.forgotPassword = async (req, res) => {
+  if (!validate(req, res)) return;
+
   const { email } = req.body;
 
   try {
-    if (!email) {
-      return res.status(400).json({ status: 'error', message: 'Email is required' });
-    }
-
     const user = await prisma.user.findUnique({ where: { email } });
 
-    // Always return success to prevent email enumeration attacks
+    // Always return success to prevent email enumeration.
     if (!user) {
       return res.status(200).json({
         status: 'success',
@@ -135,24 +121,16 @@ exports.forgotPassword = async (req, res) => {
       });
     }
 
-    // Generate OTP
     const otp = generateOTP();
     const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
-    // Save hashed OTP to DB (hash it for security)
     const hashedOtp = await bcrypt.hash(otp, 10);
     await prisma.user.update({
       where: { email },
-      data: {
-        otpCode: hashedOtp,
-        otpExpiry,
-        otpAttempts: 0,
-      },
+      data: { otpCode: hashedOtp, otpExpiry, otpAttempts: 0 },
     });
 
-    // Send OTP email
     await sendPasswordResetOTP(email, user.name, otp);
-
     console.log(`📧 OTP sent to ${email}`);
 
     res.status(200).json({
@@ -165,25 +143,20 @@ exports.forgotPassword = async (req, res) => {
   }
 };
 
-// ============================================================
-// VERIFY OTP — Step 2: Confirm OTP is valid
-// ============================================================
+// ── VERIFY OTP — Step 2 ────────────────────────────────────────────────────
 
 exports.verifyOtp = async (req, res) => {
+  if (!validate(req, res)) return;
+
   const { email, otp } = req.body;
 
   try {
-    if (!email || !otp) {
-      return res.status(400).json({ status: 'error', message: 'Email and OTP are required' });
-    }
-
     const user = await prisma.user.findUnique({ where: { email } });
 
     if (!user || !user.otpCode || !user.otpExpiry) {
       return res.status(400).json({ status: 'error', message: 'No active OTP found. Please request a new one.' });
     }
 
-    // Check if OTP is expired
     if (new Date() > user.otpExpiry) {
       await prisma.user.update({
         where: { email },
@@ -192,7 +165,6 @@ exports.verifyOtp = async (req, res) => {
       return res.status(400).json({ status: 'error', message: 'OTP has expired. Please request a new one.' });
     }
 
-    // Check attempts (max 5 to prevent brute force)
     if (user.otpAttempts >= 5) {
       await prisma.user.update({
         where: { email },
@@ -201,11 +173,9 @@ exports.verifyOtp = async (req, res) => {
       return res.status(429).json({ status: 'error', message: 'Too many failed attempts. Please request a new OTP.' });
     }
 
-    // Verify OTP
     const isValid = await bcrypt.compare(otp, user.otpCode);
 
     if (!isValid) {
-      // Increment attempts
       await prisma.user.update({
         where: { email },
         data: { otpAttempts: { increment: 1 } },
@@ -217,14 +187,14 @@ exports.verifyOtp = async (req, res) => {
       });
     }
 
-    // OTP is valid — issue a short-lived reset token
+    // OTP valid — issue a short-lived reset token (15 min, single-purpose).
     const resetToken = jwt.sign(
       { id: user.id, email: user.email, purpose: 'password_reset' },
       process.env.JWT_SECRET,
       { expiresIn: '15m' }
     );
 
-    // Clear OTP from DB (one-time use)
+    // Clear OTP — one-time use only.
     await prisma.user.update({
       where: { email },
       data: { otpCode: null, otpExpiry: null, otpAttempts: 0 },
@@ -241,27 +211,18 @@ exports.verifyOtp = async (req, res) => {
   }
 };
 
-// ============================================================
-// RESET PASSWORD — Step 3: Set new password
-// ============================================================
+// ── RESET PASSWORD — Step 3 ────────────────────────────────────────────────
 
 exports.resetPassword = async (req, res) => {
+  if (!validate(req, res)) return;
+
   const { resetToken, password, passwordConfirm } = req.body;
 
   try {
-    if (!resetToken || !password || !passwordConfirm) {
-      return res.status(400).json({ status: 'error', message: 'All fields are required' });
-    }
-
     if (password !== passwordConfirm) {
       return res.status(400).json({ status: 'error', message: 'Passwords do not match' });
     }
 
-    if (password.length < 8) {
-      return res.status(400).json({ status: 'error', message: 'Password must be at least 8 characters' });
-    }
-
-    // Verify reset token
     let decoded;
     try {
       decoded = jwt.verify(resetToken, process.env.JWT_SECRET);
@@ -273,7 +234,6 @@ exports.resetPassword = async (req, res) => {
       return res.status(400).json({ status: 'error', message: 'Invalid reset token.' });
     }
 
-    // Update password
     const hashedPassword = await bcrypt.hash(password, 12);
     const user = await prisma.user.update({
       where: { id: decoded.id },
@@ -281,8 +241,6 @@ exports.resetPassword = async (req, res) => {
     });
 
     console.log(`🔐 Password reset for user ${user.email}`);
-
-    // Log the user in with new credentials
     createSendToken(user, 200, res);
   } catch (error) {
     console.error('Reset password error:', error);

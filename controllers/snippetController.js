@@ -1,17 +1,23 @@
+const { validationResult } = require('express-validator');
 const prisma = require('../models/prismaClient');
 const { detectLanguage } = require('../utils/codeboxAI');
 
-// Save a new snippet
+const validate = (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    res.status(400).json({ error: errors.array()[0].msg });
+    return false;
+  }
+  return true;
+};
+
 exports.createSnippet = async (req, res) => {
+  if (!validate(req, res)) return;
+
   const userId = req.user.id;
   const { title, code, language, description, isPublic } = req.body;
 
   try {
-    if (!title || !code) {
-      return res.status(400).json({ error: 'Title and code are required' });
-    }
-
-    // Auto-detect language if not provided
     let detectedLanguage = language;
     if (!detectedLanguage || detectedLanguage === 'auto') {
       try {
@@ -38,10 +44,8 @@ exports.createSnippet = async (req, res) => {
   }
 };
 
-// Get all snippets for user
 exports.getSnippets = async (req, res) => {
   const userId = req.user.id;
-
   try {
     const snippets = await prisma.snippet.findMany({
       where: { userId },
@@ -53,16 +57,14 @@ exports.getSnippets = async (req, res) => {
   }
 };
 
-// Get single snippet
 exports.getSnippet = async (req, res) => {
+  if (!validate(req, res)) return;
+
   const { snippetId } = req.params;
   const userId = req.user.id;
 
   try {
-    const snippet = await prisma.snippet.findFirst({
-      where: { id: snippetId, userId },
-    });
-
+    const snippet = await prisma.snippet.findFirst({ where: { id: snippetId, userId } });
     if (!snippet) return res.status(404).json({ error: 'Snippet not found' });
     res.json({ snippet });
   } catch (error) {
@@ -70,18 +72,15 @@ exports.getSnippet = async (req, res) => {
   }
 };
 
-// Delete snippet
 exports.deleteSnippet = async (req, res) => {
+  if (!validate(req, res)) return;
+
   const { snippetId } = req.params;
   const userId = req.user.id;
 
   try {
-    const snippet = await prisma.snippet.findFirst({
-      where: { id: snippetId, userId },
-    });
-
+    const snippet = await prisma.snippet.findFirst({ where: { id: snippetId, userId } });
     if (!snippet) return res.status(404).json({ error: 'Snippet not found' });
-
     await prisma.snippet.delete({ where: { id: snippetId } });
     res.json({ success: true });
   } catch (error) {
@@ -89,21 +88,27 @@ exports.deleteSnippet = async (req, res) => {
   }
 };
 
-// Update snippet
+/**
+ * Fix #10: the update where-clause now includes userId.
+ * Previously the ownership check was a separate findFirst, but the update
+ * itself only filtered by id — a race condition or logic error could have
+ * updated the wrong record. Both the check AND the update now require userId.
+ */
 exports.updateSnippet = async (req, res) => {
+  if (!validate(req, res)) return;
+
   const { snippetId } = req.params;
   const userId = req.user.id;
   const { title, code, language, description, isPublic } = req.body;
 
   try {
-    const snippet = await prisma.snippet.findFirst({
-      where: { id: snippetId, userId },
-    });
-
+    // Verify ownership first.
+    const snippet = await prisma.snippet.findFirst({ where: { id: snippetId, userId } });
     if (!snippet) return res.status(404).json({ error: 'Snippet not found' });
 
+    // Update also scoped to userId — belt-and-suspenders ownership enforcement.
     const updated = await prisma.snippet.update({
-      where: { id: snippetId },
+      where: { id: snippetId, userId },
       data: {
         title: title?.trim() || snippet.title,
         code: code || snippet.code,

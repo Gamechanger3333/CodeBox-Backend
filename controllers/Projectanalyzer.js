@@ -1,7 +1,8 @@
-const Groq = require('groq-sdk');
-require('dotenv').config();
+// controllers/Projectanalyzer.js
+// Project analysis logic — uses the shared groqClient singleton.
+// Never create a new Groq() here; import it from utils/groqClient.
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+const groq = require('../utils/groqClient');
 
 // File extensions to include in analysis (skip binaries, lock files, etc.)
 const ALLOWED_EXTENSIONS = new Set([
@@ -31,40 +32,29 @@ const SKIP_FILES = new Set([
   'Cargo.lock', 'go.sum', '.DS_Store', 'thumbs.db',
 ]);
 
-const MAX_FILE_SIZE = 20 * 1024; // 20 KB per file
-const MAX_TOTAL_CHARS = 28000;  // ~7k tokens — fits Groq free tier (12k TPM limit)
+const MAX_FILE_SIZE = 20 * 1024;  // 20 KB per file
+const MAX_TOTAL_CHARS = 28000;    // ~7k tokens — fits Groq free tier (12k TPM limit)
 
-/**
- * Determines if a file path should be included in analysis
- */
 function shouldIncludeFile(filePath) {
   const parts = filePath.split('/');
   const filename = parts[parts.length - 1];
 
-  // Skip hidden files except useful dotfiles
   if (filename.startsWith('.') && !ALLOWED_EXTENSIONS.has('.' + filename.split('.').slice(1).join('.'))) {
     const allowedDotfiles = ['.env.example', '.env.local.example', '.gitignore', '.eslintrc', '.prettierrc', '.babelrc', '.dockerignore'];
     if (!allowedDotfiles.some(d => filename.endsWith(d.replace(/^\./, '')))) return false;
   }
 
-  // Skip directories
   for (const part of parts.slice(0, -1)) {
     if (SKIP_DIRS.has(part)) return false;
   }
 
-  // Skip specific files
   if (SKIP_FILES.has(filename)) return false;
 
-  // Check extension
   const ext = '.' + filename.split('.').slice(1).join('.');
   const simpleExt = filename.includes('.') ? '.' + filename.split('.').pop() : '';
-
   return ALLOWED_EXTENSIONS.has(ext) || ALLOWED_EXTENSIONS.has(simpleExt);
 }
 
-/**
- * Build a clean tree structure string from file list
- */
 function buildFileTree(filePaths) {
   const tree = {};
   for (const p of filePaths) {
@@ -77,7 +67,7 @@ function buildFileTree(filePaths) {
   }
 
   const lines = [];
-  function render(node, prefix = '', isLast = true) {
+  function render(node, prefix = '') {
     const keys = Object.keys(node).sort((a, b) => {
       const aIsDir = Object.keys(node[a]).length > 0;
       const bIsDir = Object.keys(node[b]).length > 0;
@@ -90,17 +80,13 @@ function buildFileTree(filePaths) {
       const connector = last ? '└── ' : '├── ';
       const isDir = Object.keys(node[key]).length > 0;
       lines.push(prefix + connector + key + (isDir ? '/' : ''));
-      if (isDir) render(node[key], prefix + (last ? '    ' : '│   '), last);
+      if (isDir) render(node[key], prefix + (last ? '    ' : '│   '));
     });
   }
   render(tree);
   return lines.join('\n');
 }
 
-/**
- * Extract and prepare project files from a zip buffer
- * Returns { fileTree, files, stats }
- */
 async function extractProjectFiles(zipBuffer) {
   const JSZip = require('jszip');
   const zip = await JSZip.loadAsync(zipBuffer);
@@ -114,12 +100,10 @@ async function extractProjectFiles(zipBuffer) {
 
     promises.push(
       zipEntry.async('uint8array').then(data => {
-        if (data.length > MAX_FILE_SIZE) return; // skip huge files
+        if (data.length > MAX_FILE_SIZE) return;
         const text = new TextDecoder('utf-8', { fatal: false }).decode(data);
-        // Skip binary files (heuristic: >10% non-printable chars)
         const nonPrintable = (text.match(/[\x00-\x08\x0e-\x1f\x7f-\x9f]/g) || []).length;
         if (nonPrintable / text.length > 0.1) return;
-        // Strip leading root folder name (GitHub adds reponame-main/ prefix)
         const cleanPath = relativePath.replace(/^[^/]+\//, '');
         if (cleanPath) allFiles.push({ path: cleanPath, content: text.trim() });
       })
@@ -129,12 +113,10 @@ async function extractProjectFiles(zipBuffer) {
   await Promise.all(promises);
   allFiles.sort((a, b) => a.path.localeCompare(b.path));
 
-  // Build context string, respecting total char budget
   let totalChars = 0;
   const includedFiles = [];
   const skippedFiles = [];
 
-  // Prioritize important files first
   const priority = (p) => {
     if (p.match(/^(README|package\.json|prisma\/schema|app\.js|index\.(js|ts)|main\.(py|go|rs))/i)) return 0;
     if (p.match(/\.(json|yaml|yml|toml|prisma|sql)$/)) return 1;
@@ -153,7 +135,6 @@ async function extractProjectFiles(zipBuffer) {
   }
 
   const fileTree = buildFileTree(allFiles.map(f => f.path));
-
   return {
     fileTree,
     files: includedFiles,
@@ -166,18 +147,13 @@ async function extractProjectFiles(zipBuffer) {
   };
 }
 
-/**
- * Build the full context prompt for project analysis
- */
 function buildProjectContext(fileTree, files) {
   let context = `PROJECT FILE STRUCTURE:\n\`\`\`\n${fileTree}\n\`\`\`\n\n`;
   context += `=== FILE CONTENTS ===\n\n`;
-
   for (const file of files) {
     const ext = file.path.split('.').pop();
     context += `--- FILE: ${file.path} ---\n\`\`\`${ext}\n${file.content}\n\`\`\`\n\n`;
   }
-
   return context;
 }
 
@@ -193,9 +169,6 @@ YOUR ANALYSIS STYLE:
 - Use markdown formatting with clear headers, code blocks with language tags, and bullet points
 - Use ⚠️ for critical issues, 💡 for improvements, ✅ for strengths, 🔴 for security/bugs, 🟡 for warnings`;
 
-/**
- * Run the full project analysis (initial deep scan)
- */
 exports.analyzeProject = async (fileTree, files) => {
   const projectContext = buildProjectContext(fileTree, files);
 
@@ -206,19 +179,19 @@ exports.analyzeProject = async (fileTree, files) => {
 Perform a comprehensive project analysis. Structure your response with these exact sections:
 
 ## 📁 Project Overview
-What this project is, its purpose, tech stack, and architecture pattern. Be specific about what you see.
+What this project is, its purpose, tech stack, and architecture pattern.
 
 ## 🏗️ Architecture & Structure
-How the code is organized. Is the structure clean and scalable? What pattern does it follow (MVC, feature-based, etc.)? What's working well and what's confusing?
+How the code is organized. Is the structure clean and scalable?
 
 ## 🔴 Critical Issues
-Bugs, security vulnerabilities, data loss risks, or anything that could cause production failures. Reference specific files and code.
+Bugs, security vulnerabilities, data loss risks, or anything that could cause production failures.
 
 ## ⚠️ Code Quality
-Inconsistencies, anti-patterns, technical debt, or maintainability problems. Be specific with file references.
+Inconsistencies, anti-patterns, technical debt, or maintainability problems.
 
 ## 🔒 Security Analysis
-Authentication, authorization, input validation, secrets handling, SQL injection, XSS, CSRF risks. Reference actual code.
+Authentication, authorization, input validation, secrets handling, SQL injection, XSS, CSRF risks.
 
 ## ⚡ Performance
 Inefficient queries, missing indexes, unnecessary re-renders, memory leaks, or scalability concerns.
@@ -227,9 +200,7 @@ Inefficient queries, missing indexes, unnecessary re-renders, memory leaks, or s
 The top 5 most impactful things the team should do next, in priority order.
 
 ## ✅ Strengths
-What the codebase does well — be genuine, not generic.
-
-Keep each section concise and focused. Reference real file paths and code from this project.`;
+What the codebase does well — be genuine, not generic.`;
 
   const completion = await groq.chat.completions.create({
     model: 'llama-3.3-70b-versatile',
@@ -244,9 +215,6 @@ Keep each section concise and focused. Reference real file paths and code from t
   return completion.choices[0]?.message?.content || 'Analysis failed.';
 };
 
-/**
- * Answer a follow-up question about the project with full context
- */
 exports.askAboutProject = async (fileTree, files, conversationHistory, userQuestion) => {
   const projectContext = buildProjectContext(fileTree, files);
 
@@ -256,11 +224,11 @@ exports.askAboutProject = async (fileTree, files, conversationHistory, userQuest
       role: 'user',
       content: `Here is the complete project codebase for reference:\n\n${projectContext}\n\n---\nI have reviewed this project. Now answer my questions about it.`,
     },
-    { role: 'assistant', content: 'I\'ve reviewed the entire codebase. I can see the project structure, all source files, configurations, and dependencies. Ask me anything about this project — bugs, refactoring, architecture, adding features, or specific files.' },
-    ...conversationHistory.map(m => ({
-      role: m.role,
-      content: m.content,
-    })),
+    {
+      role: 'assistant',
+      content: "I've reviewed the entire codebase. Ask me anything about this project — bugs, refactoring, architecture, adding features, or specific files.",
+    },
+    ...conversationHistory.map(m => ({ role: m.role, content: m.content })),
     { role: 'user', content: userQuestion },
   ];
 
