@@ -31,8 +31,8 @@ const SKIP_FILES = new Set([
   'Cargo.lock', 'go.sum', '.DS_Store', 'thumbs.db',
 ]);
 
-const MAX_FILE_SIZE = 60 * 1024; // 60 KB per file
-const MAX_TOTAL_CHARS = 80000;   // ~80k chars total context sent to LLM
+const MAX_FILE_SIZE = 20 * 1024; // 20 KB per file
+const MAX_TOTAL_CHARS = 28000;  // ~7k tokens — fits Groq free tier (12k TPM limit)
 
 /**
  * Determines if a file path should be included in analysis
@@ -238,7 +238,7 @@ Keep each section concise and focused. Reference real file paths and code from t
       { role: 'user', content: analysisPrompt },
     ],
     temperature: 0.4,
-    max_tokens: 4096,
+    max_tokens: 2000,
   });
 
   return completion.choices[0]?.message?.content || 'Analysis failed.';
@@ -268,7 +268,7 @@ exports.askAboutProject = async (fileTree, files, conversationHistory, userQuest
     model: 'llama-3.3-70b-versatile',
     messages,
     temperature: 0.5,
-    max_tokens: 3000,
+    max_tokens: 1500,
   });
 
   return completion.choices[0]?.message?.content || 'Could not generate response.';

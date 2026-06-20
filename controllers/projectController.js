@@ -1,40 +1,27 @@
 const { extractProjectFiles, analyzeProject, askAboutProject } = require('../utils/projectAnalyzer');
+const prisma = require('../models/prismaClient');
 
-// In-memory store for project context per user session
-// In production, store this in Redis or DB
-const projectSessions = new Map();
+const MAX_HISTORY = 20; // keep last 10 turns (20 messages)
 
-const SESSION_TTL = 2 * 60 * 60 * 1000; // 2 hours
-
-function getSessionKey(userId) {
-  return `project:${userId}`;
-}
-
-function cleanupExpiredSessions() {
-  const now = Date.now();
-  for (const [key, session] of projectSessions.entries()) {
-    if (now - session.createdAt > SESSION_TTL) {
-      projectSessions.delete(key);
-    }
-  }
-}
-
+// ─────────────────────────────────────────────────────────────────────────────
 // Upload and analyze a project ZIP
+// ─────────────────────────────────────────────────────────────────────────────
 exports.uploadProject = async (req, res, next) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No ZIP file uploaded' });
     }
 
-    const userId = req.user.id;
-    const zipBuffer = req.file.buffer;
+    const userId  = req.user.id;
+    const zipBuffer   = req.file.buffer;
     const originalName = req.file.originalname;
+    const projectName  = originalName.replace(/\.zip$/i, '');
 
-    // Extract files from ZIP
+    // 1. Extract files from ZIP
     let extracted;
     try {
       extracted = await extractProjectFiles(zipBuffer);
-    } catch (err) {
+    } catch {
       return res.status(400).json({ error: 'Failed to parse ZIP file. Make sure it is a valid ZIP archive.' });
     }
 
@@ -42,25 +29,35 @@ exports.uploadProject = async (req, res, next) => {
       return res.status(400).json({ error: 'No readable source files found in this ZIP. Make sure it contains source code files.' });
     }
 
-    // Run AI analysis
+    // 2. Run AI analysis
     const analysis = await analyzeProject(extracted.fileTree, extracted.files);
 
-    // Store project context in session
-    cleanupExpiredSessions();
-    const sessionKey = getSessionKey(userId);
-    projectSessions.set(sessionKey, {
-      projectName: originalName.replace(/\.zip$/i, ''),
-      fileTree: extracted.fileTree,
-      files: extracted.files,
-      stats: extracted.stats,
-      conversationHistory: [],
-      createdAt: Date.now(),
+    // 3. Persist to DB (upsert — one row per user, new upload replaces old)
+    await prisma.projectSession.upsert({
+      where:  { userId },
+      update: {
+        projectName,
+        fileTree: extracted.fileTree,
+        files:    JSON.stringify(extracted.files),
+        stats:    JSON.stringify(extracted.stats),
+        analysis,
+        history:  '[]',          // reset chat history on new upload
+      },
+      create: {
+        userId,
+        projectName,
+        fileTree: extracted.fileTree,
+        files:    JSON.stringify(extracted.files),
+        stats:    JSON.stringify(extracted.stats),
+        analysis,
+        history:  '[]',
+      },
     });
 
     res.json({
       success: true,
-      projectName: originalName.replace(/\.zip$/i, ''),
-      stats: extracted.stats,
+      projectName,
+      stats:    extracted.stats,
       fileTree: extracted.fileTree,
       analysis,
     });
@@ -70,7 +67,9 @@ exports.uploadProject = async (req, res, next) => {
   }
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
 // Ask a follow-up question about the loaded project
+// ─────────────────────────────────────────────────────────────────────────────
 exports.askProject = async (req, res, next) => {
   try {
     const userId = req.user.id;
@@ -80,32 +79,36 @@ exports.askProject = async (req, res, next) => {
       return res.status(400).json({ error: 'No message provided' });
     }
 
-    const sessionKey = getSessionKey(userId);
-    const session = projectSessions.get(sessionKey);
+    // Load session from DB
+    const session = await prisma.projectSession.findUnique({ where: { userId } });
 
     if (!session) {
       return res.status(404).json({ error: 'No project loaded. Please upload a project ZIP first.' });
     }
 
-    // Check session not expired
-    if (Date.now() - session.createdAt > SESSION_TTL) {
-      projectSessions.delete(sessionKey);
-      return res.status(410).json({ error: 'Project session expired. Please re-upload your project.' });
-    }
+    const files   = JSON.parse(session.files);
+    const history = JSON.parse(session.history);
 
+    // Get AI response
     const response = await askAboutProject(
       session.fileTree,
-      session.files,
-      session.conversationHistory,
+      files,
+      history,
       message
     );
 
-    // Append to history (keep last 10 turns to stay within context)
-    session.conversationHistory.push({ role: 'user', content: message });
-    session.conversationHistory.push({ role: 'assistant', content: response });
-    if (session.conversationHistory.length > 20) {
-      session.conversationHistory = session.conversationHistory.slice(-20);
-    }
+    // Update history (keep last MAX_HISTORY messages)
+    const updatedHistory = [
+      ...history,
+      { role: 'user',      content: message  },
+      { role: 'assistant', content: response },
+    ].slice(-MAX_HISTORY);
+
+    // Save updated history back to DB
+    await prisma.projectSession.update({
+      where: { userId },
+      data:  { history: JSON.stringify(updatedHistory) },
+    });
 
     res.json({ response, projectName: session.projectName });
   } catch (error) {
@@ -114,28 +117,46 @@ exports.askProject = async (req, res, next) => {
   }
 };
 
-// Get current project session info
+// ─────────────────────────────────────────────────────────────────────────────
+// Get current project session info (called on page load)
+// Returns the saved analysis too so the frontend can restore the chat view
+// ─────────────────────────────────────────────────────────────────────────────
 exports.getProjectSession = async (req, res) => {
-  const userId = req.user.id;
-  const sessionKey = getSessionKey(userId);
-  const session = projectSessions.get(sessionKey);
+  try {
+    const userId  = req.user.id;
+    const session = await prisma.projectSession.findUnique({ where: { userId } });
 
-  if (!session || Date.now() - session.createdAt > SESSION_TTL) {
-    return res.json({ hasProject: false });
+    if (!session) {
+      return res.json({ hasProject: false });
+    }
+
+    const history = JSON.parse(session.history);
+
+    res.json({
+      hasProject:   true,
+      projectName:  session.projectName,
+      stats:        JSON.parse(session.stats),
+      fileTree:     session.fileTree,
+      analysis:     session.analysis,          // ← restored so UI can show it
+      history,                                 // ← restored chat history
+      messageCount: history.length / 2,
+    });
+  } catch (error) {
+    console.error('Get project session error:', error);
+    res.json({ hasProject: false });
   }
-
-  res.json({
-    hasProject: true,
-    projectName: session.projectName,
-    stats: session.stats,
-    fileTree: session.fileTree,
-    messageCount: session.conversationHistory.length / 2,
-  });
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
 // Clear project session
+// ─────────────────────────────────────────────────────────────────────────────
 exports.clearProject = async (req, res) => {
-  const userId = req.user.id;
-  projectSessions.delete(getSessionKey(userId));
-  res.json({ success: true });
+  try {
+    const userId = req.user.id;
+    await prisma.projectSession.deleteMany({ where: { userId } });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Clear project error:', error);
+    res.json({ success: true }); // still return success — worst case it's already gone
+  }
 };

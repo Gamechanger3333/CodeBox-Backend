@@ -8,20 +8,21 @@ generator client {
 }
 
 model User {
-  id            Int            @id @default(autoincrement())
-  name          String
-  email         String         @unique
-  password      String
-  avatar        String?
-  bio           String?
-  isVerified    Boolean        @default(false)
-  otpCode       String?
-  otpExpiry     DateTime?
-  otpAttempts   Int            @default(0)
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  conversations Conversation[]
-  snippets      Snippet[]
+  id              Int              @id @default(autoincrement())
+  name            String
+  email           String           @unique
+  password        String
+  avatar          String?
+  bio             String?
+  isVerified      Boolean          @default(false)
+  otpCode         String?
+  otpExpiry       DateTime?
+  otpAttempts     Int              @default(0)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  conversations   Conversation[]
+  snippets        Snippet[]
+  projectSession  ProjectSession?
 }
 
 model Conversation {
@@ -59,4 +60,20 @@ model Snippet {
 
 model ConversationIdOnly {
   id String @id
+}
+
+// Stores the full project context in the DB so it survives server restarts.
+// One row per user — uploading a new ZIP replaces the old one (upsert).
+model ProjectSession {
+  id          String   @id @default(uuid())
+  userId      Int      @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectName String
+  fileTree    String   @db.Text          // plain text tree
+  files       String   @db.Text          // JSON: { path, content }[]
+  stats       String                     // JSON: { total, analyzed, skipped, totalChars }
+  analysis    String   @db.Text          // initial AI analysis markdown
+  history     String   @db.Text @default("[]") // JSON: { role, content }[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
