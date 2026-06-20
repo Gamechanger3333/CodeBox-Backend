@@ -2,6 +2,7 @@ const { extractProjectFiles, analyzeProject, askAboutProject } = require('../uti
 const prisma = require('../models/prismaClient');
 
 const MAX_HISTORY = 20; // keep last 10 turns (20 messages)
+const MAX_MESSAGE_LENGTH = 8000; // same reasoning as conversationController — cap LLM cost per request
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Upload and analyze a project ZIP
@@ -77,6 +78,10 @@ exports.askProject = async (req, res, next) => {
 
     if (!message?.trim()) {
       return res.status(400).json({ error: 'No message provided' });
+    }
+
+    if (message.length > MAX_MESSAGE_LENGTH) {
+      return res.status(400).json({ error: `Message too long (max ${MAX_MESSAGE_LENGTH} characters)` });
     }
 
     // Load session from DB

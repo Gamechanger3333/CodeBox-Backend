@@ -2,6 +2,12 @@ const { sendMessage, startConversation, getConversation, deleteConversationById 
 const { analyzeCode } = require('../utils/codeboxAI');
 const prisma = require('../models/prismaClient');
 
+// Caps how much text a single request can push into the LLM. The body-parser
+// limit (10mb) is far too generous for this — without a per-field cap a
+// single user can run up a large Groq bill by sending huge payloads
+// repeatedly within the rate limit window.
+const MAX_MESSAGE_LENGTH = 8000;
+
 // Start a new conversation
 exports.startConversation = async (req, res, next) => {
   const userId = req.user.id;
@@ -15,12 +21,16 @@ exports.startConversation = async (req, res, next) => {
 
 // Send a message
 exports.sendMessage = async (req, res, next) => {
-  const { conversationId, message, sender } = req.body;
+  const { conversationId, message } = req.body;
   const userId = req.user.id;
 
   try {
-    if (!conversationId || !message || !sender) {
-      return res.status(400).json({ error: 'Missing conversationId, message, or sender' });
+    if (!conversationId || !message) {
+      return res.status(400).json({ error: 'Missing conversationId or message' });
+    }
+
+    if (message.length > MAX_MESSAGE_LENGTH) {
+      return res.status(400).json({ error: `Message too long (max ${MAX_MESSAGE_LENGTH} characters)` });
     }
 
     const conversation = await prisma.conversation.findUnique({
@@ -31,7 +41,10 @@ exports.sendMessage = async (req, res, next) => {
       return res.status(404).json({ error: 'Conversation not found' });
     }
 
-    const botResponse = await sendMessage(conversationId, message, sender);
+    // 'sender' is always 'user' for messages coming through this endpoint —
+    // never trust the client to tell us who sent the message, or anyone
+    // could post fake "bot" messages into their own history.
+    const botResponse = await sendMessage(conversationId, message, 'user');
     
     // Fetch updated conversation title
     const updatedConv = await prisma.conversation.findUnique({
@@ -188,6 +201,9 @@ exports.analyzeCode = async (req, res, next) => {
 
   try {
     if (!code) return res.status(400).json({ error: 'No code provided' });
+    if (code.length > MAX_MESSAGE_LENGTH) {
+      return res.status(400).json({ error: `Code too long to analyze (max ${MAX_MESSAGE_LENGTH} characters)` });
+    }
     const analysis = await analyzeCode(code, filename || 'code.txt');
     res.json({ analysis });
   } catch (error) {

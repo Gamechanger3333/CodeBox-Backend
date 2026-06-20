@@ -19,12 +19,18 @@ const createSendToken = (user, statusCode, res) => {
 
   res.cookie('token', token, {
     expires: new Date(Date.now() + cookieExpiresIn * 24 * 60 * 60 * 1000),
-    httpOnly: false, // false so js-cookie can read it on the frontend
+    // httpOnly: true so the token is never readable by JavaScript — this is
+    // what actually protects it from theft via XSS. The cookie is sent
+    // automatically by the browser on same-site requests (withCredentials:
+    // true on the frontend), so the frontend no longer needs to read it.
+    httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
   });
 
   const { password, otpCode, otpExpiry, otpAttempts, ...userData } = user;
+  // The token is still echoed in the JSON body for non-browser clients
+  // (mobile apps, API consumers) that can't rely on cookies.
   res.status(statusCode).json({ status: 'success', token, data: { user: userData } });
 };
 
@@ -100,7 +106,9 @@ exports.login = async (req, res, next) => {
 exports.logout = (req, res) => {
   res.cookie('token', '', {
     expires: new Date(Date.now() + 10 * 1000),
-    httpOnly: false,
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
   });
   res.status(200).json({ status: 'success', message: 'Logged out successfully' });
 };

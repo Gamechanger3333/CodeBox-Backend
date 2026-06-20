@@ -17,6 +17,14 @@ const authMiddleware = (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    // Reset tokens are issued with a `purpose` claim and are only meant to
+    // authorize POST /reset-password for a short window. They must never be
+    // accepted as a general-purpose API credential.
+    if (decoded.purpose) {
+      return res.status(403).json({ error: 'Invalid or expired token' });
+    }
+
     req.user = decoded;
     next();
   } catch (error) {
