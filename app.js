@@ -61,12 +61,16 @@ app.use((req, res) => {
 });
 
 // Global error handler — never leak internal error details to the client in production.
+// Exception: errors we explicitly mark as `expose = true` (e.g. missing
+// third-party API key) have a message that's safe and useful to show the
+// user as-is, even in production.
 app.use((err, req, res, next) => {
   console.error(err.stack);
   const isProd = process.env.NODE_ENV === 'production';
+  const safeToShow = isProd && (err.expose === true || (err.status && err.status < 500));
   res.status(err.status || 500).json({
     status: 'error',
-    message: isProd ? 'Something went wrong. Please try again.' : (err.message || 'Internal Server Error'),
+    message: (!isProd || safeToShow) ? (err.message || 'Internal Server Error') : 'Something went wrong. Please try again.',
   });
 });
 

@@ -16,8 +16,13 @@ const passwordRules = body('password')
 
 const nameRules = body('name')
   .trim()
-  .isLength({ min: 1, max: 100 }).withMessage('Name must be 1–100 characters')
-  .escape();
+  .isLength({ min: 1, max: 100 }).withMessage('Name must be 1–100 characters');
+  // NOTE: intentionally NOT using .escape() here. express-validator's .escape()
+  // HTML-entity-encodes the value (e.g. "O'Brien" -> "O&#x27;Brien") and stores
+  // that encoded string in the database. React already escapes interpolated
+  // text when rendering ({userName}), so encoding again here just displays
+  // the literal entities to the user. XSS protection belongs at render time
+  // (React/JSX handles this automatically), not by mutating stored data.
 
 const otpRules = body('otp')
   .trim()

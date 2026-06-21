@@ -131,7 +131,7 @@ exports.forgotPassword = async (req, res) => {
     });
 
     await sendPasswordResetOTP(email, user.name, otp);
-    console.log(`📧 OTP sent to ${email}`);
+    console.log(`📧 Password reset OTP issued for user ${user.id}`);
 
     res.status(200).json({
       status: 'success',
@@ -139,7 +139,9 @@ exports.forgotPassword = async (req, res) => {
     });
   } catch (error) {
     console.error('Forgot password error:', error);
-    res.status(500).json({ status: 'error', message: 'Failed to send OTP. Please try again.' });
+    const status = error.status || 500;
+    const message = error.expose ? error.message : 'Failed to send OTP. Please try again.';
+    res.status(status).json({ status: 'error', message });
   }
 };
 
@@ -240,7 +242,7 @@ exports.resetPassword = async (req, res) => {
       data: { password: hashedPassword },
     });
 
-    console.log(`🔐 Password reset for user ${user.email}`);
+    console.log(`🔐 Password reset completed for user ${user.id}`);
     createSendToken(user, 200, res);
   } catch (error) {
     console.error('Reset password error:', error);

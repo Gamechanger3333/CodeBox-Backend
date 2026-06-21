@@ -5,22 +5,44 @@
 // The hardcoded "onboarding@resend.dev" sandbox address only works in dev —
 // in production you must set a verified custom domain in Resend and point
 // EMAIL_FROM at it, e.g. "CodeBox <noreply@yourdomain.com>".
+//
+// IMPORTANT: the Resend client is created LAZILY. If RESEND_API_KEY is
+// missing, the error is thrown only when an email actually needs to be
+// sent — not at server boot. Throwing at require() time would crash the
+// entire API (including unrelated features like login and snippets) just
+// because one third-party key was missing or rotated.
 
 const { Resend } = require('resend');
+const crypto = require('crypto');
 require('dotenv').config();
 
-if (!process.env.RESEND_API_KEY) {
-  throw new Error('RESEND_API_KEY environment variable is not set. Check your .env file.');
-}
+let resendInstance = null;
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+function getResendClient() {
+  if (resendInstance) return resendInstance;
+
+  if (!process.env.RESEND_API_KEY) {
+    const err = new Error('Email service is temporarily unavailable. Please try again later.');
+    err.status = 503;
+    err.expose = true;
+    err.code = 'RESEND_API_KEY_MISSING';
+    console.error('RESEND_API_KEY environment variable is not set. Check your .env file.');
+    throw err;
+  }
+
+  resendInstance = new Resend(process.env.RESEND_API_KEY);
+  return resendInstance;
+}
 
 // Falls back to the Resend sandbox address in dev only.
 const FROM_ADDRESS = process.env.EMAIL_FROM || 'CodeBox <onboarding@resend.dev>';
 
-const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString();
+// Cryptographically secure 6-digit OTP (crypto.randomInt is not biased,
+// unlike Math.random()-based approaches).
+const generateOTP = () => crypto.randomInt(100000, 1000000).toString();
 
 exports.sendPasswordResetOTP = async (email, name, otp) => {
+  const resend = getResendClient();
   const { data, error } = await resend.emails.send({
     from: FROM_ADDRESS,
     to: email,
@@ -100,7 +122,7 @@ exports.sendPasswordResetOTP = async (email, name, otp) => {
     throw new Error(error.message);
   }
 
-  console.log(`📧 OTP sent to ${email} via Resend (id: ${data.id})`);
+  console.log(`📧 Password reset OTP email sent (id: ${data.id})`);
   return data;
 };
 

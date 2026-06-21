@@ -109,6 +109,7 @@ router.post('/snippets',
     body('code').trim().isLength({ min: 1, max: 50000 }).withMessage('Code must be 1–50000 characters'),
     body('language').optional().trim().isLength({ max: 50 }).withMessage('Language name too long'),
     body('description').optional().trim().isLength({ max: 500 }).withMessage('Description max 500 characters'),
+    body('isPublic').optional().isBoolean().withMessage('isPublic must be true or false').toBoolean(),
   ],
   snippetController.createSnippet
 );
@@ -124,8 +125,10 @@ router.put('/snippets/:snippetId',
   [
     uuidParam('snippetId'),
     body('title').optional().trim().isLength({ min: 1, max: 100 }),
+    body('code').optional().trim().isLength({ min: 1, max: 50000 }).withMessage('Code must be 1–50000 characters'),
     body('language').optional().trim().isLength({ max: 50 }),
     body('description').optional().trim().isLength({ max: 500 }),
+    body('isPublic').optional().isBoolean().withMessage('isPublic must be true or false').toBoolean(),
   ],
   snippetController.updateSnippet
 );
