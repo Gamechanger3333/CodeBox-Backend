@@ -137,7 +137,8 @@ async function extractProjectFiles(zipBuffer) {
   const fileTree = buildFileTree(allFiles.map(f => f.path));
   return {
     fileTree,
-    files: includedFiles,
+    files: includedFiles,   // capped subset — used for the one-shot analyzeProject() call
+    allFiles,                // full uncapped list — used for RAG ingestion, so nothing is left un-indexed
     stats: {
       total: allFiles.length,
       analyzed: includedFiles.length,
@@ -227,6 +228,41 @@ exports.askAboutProject = async (fileTree, files, conversationHistory, userQuest
     {
       role: 'assistant',
       content: "I've reviewed the entire codebase. Ask me anything about this project — bugs, refactoring, architecture, adding features, or specific files.",
+    },
+    ...conversationHistory.map(m => ({ role: m.role, content: m.content })),
+    { role: 'user', content: userQuestion },
+  ];
+
+  const completion = await groq.chat.completions.create({
+    model: 'llama-3.3-70b-versatile',
+    messages,
+    temperature: 0.5,
+    max_tokens: 1500,
+  });
+
+  return completion.choices[0]?.message?.content || 'Could not generate response.';
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RAG version — same as askAboutProject, but takes retrieved chunks instead
+// of the full file list. Used once RAG ingestion is wired into a project.
+// ─────────────────────────────────────────────────────────────────────────────
+exports.askAboutProjectRAG = async (relevantChunks, conversationHistory, userQuestion) => {
+  let context = `RELEVANT CODE SECTIONS (retrieved based on your question):\n\n`;
+  for (const chunk of relevantChunks) {
+    const ext = chunk.filePath.split('.').pop();
+    context += `--- FILE: ${chunk.filePath} (relevance: ${chunk.score.toFixed(2)}) ---\n\`\`\`${ext}\n${chunk.content}\n\`\`\`\n\n`;
+  }
+
+  const messages = [
+    { role: 'system', content: PROJECT_ANALYST_SYSTEM_PROMPT },
+    {
+      role: 'user',
+      content: `Here are the code sections most relevant to my question, retrieved from the full project:\n\n${context}\n\n---\nNote: this is a partial view of the project, selected because it best matches my question below. If something seems missing, say so rather than guessing.`,
+    },
+    {
+      role: 'assistant',
+      content: "Understood — I'll answer based on the relevant sections you've retrieved, and flag if I think I'm missing needed context.",
     },
     ...conversationHistory.map(m => ({ role: m.role, content: m.content })),
     { role: 'user', content: userQuestion },

@@ -74,6 +74,36 @@ model ProjectSession {
   stats       String                     // JSON: { total, analyzed, skipped, totalChars }
   analysis    String   @db.Text          // initial AI analysis markdown
   history     String   @db.Text @default("[]") // JSON: { role, content }[]
+  ragStatus   String   @default("pending")     // "pending" | "ready" | "failed" — tracks background chunk ingestion
+  ragChunkCount Int    @default(0)             // how many chunks were indexed once ready
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+// Tracks a content hash per (sessionId, filePath) so re-uploads can skip
+// re-chunking/re-embedding files that haven't actually changed — embedding
+// is the slow, CPU-bound step, so avoiding redundant work here matters.
+model IngestedFileHash {
+  id          String   @id @default(uuid())
+  sessionId   String
+  filePath    String
+  contentHash String
+  updatedAt   DateTime @updatedAt
+
+  @@unique([sessionId, filePath])
+  @@index([sessionId])
+}
+// Stores individual embedded chunks of a user's uploaded project, used for
+// RAG retrieval during follow-up Q&A. sessionId is a String (not a relation)
+// because it's set to String(userId), matching the Int -> String conversion
+// used throughout ragEngine.js.
+model CodeChunk {
+  id        String   @id @default(uuid())
+  sessionId String
+  filePath  String
+  content   String   @db.Text
+  embedding Json
+  createdAt DateTime @default(now())
+
+  @@index([sessionId])
 }

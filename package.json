@@ -5,6 +5,9 @@
   "main": "app.js",
   "author": "Muhammad Atif",
   "license": "ISC",
+  "engines": {
+    "node": ">=18.0.0 <23.0.0"
+  },
   "scripts": {
     "start": "node app.js",
     "dev": "nodemon app.js",

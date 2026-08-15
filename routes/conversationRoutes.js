@@ -4,6 +4,7 @@ const multer = require('multer');
 const conversationController = require('../controllers/conversationController');
 const snippetController = require('../controllers/snippetController');
 const projectController = require('../controllers/projectController');
+const interviewController = require('../controllers/interviewController');
 const authenticateToken = require('../middlewares/auth');
 
 const router = express.Router();
@@ -152,5 +153,21 @@ router.post('/project/ask',
 router.get('/project/session', authenticateToken, projectController.getProjectSession);
 
 router.delete('/project/session', authenticateToken, projectController.clearProject);
+
+// ── Interview Prep (mock technical interview grounded in the uploaded project) ──
+
+router.post('/interview/start', authenticateToken, interviewController.startInterview);
+
+router.post('/interview/answer',
+  authenticateToken,
+  [body('answer').trim().isLength({ min: 1, max: 4000 }).withMessage('Answer must be 1–4000 characters')],
+  interviewController.submitAnswer
+);
+
+router.post('/interview/finish', authenticateToken, interviewController.finishInterview);
+
+router.get('/interview/session', authenticateToken, interviewController.getInterviewSession);
+
+router.delete('/interview/session', authenticateToken, interviewController.resetInterview);
 
 module.exports = router;
