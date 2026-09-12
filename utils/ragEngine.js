@@ -5,7 +5,6 @@
 
 const prisma = require('../models/prismaClient');
 
-const OLLAMA_URL = 'http://localhost:11434/api/embeddings';
 const EMBED_MODEL = 'nomic-embed-text';
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -151,14 +150,22 @@ function chunkAllFiles(files) {
 //    signal (e.g. "authController.js" nudges login/register code apart
 //    from unrelated files with similar-looking logic).
 //
-//    Using /api/embed (not the older /api/embeddings): it accepts an
-//    array of texts and returns all their vectors in ONE request, instead
-//    of one HTTP round-trip per chunk. This matters more than client-side
-//    concurrency (Promise.all) when Ollama itself processes requests
-//    mostly serially on a CPU-only machine — batching at the API level
-//    is what actually reduces wall-clock time.
+//    Two providers, chosen via EMBEDDING_PROVIDER env var:
+//      - "ollama" (default): local, free, offline — good for development,
+//        but needs a machine running Ollama (a VM, or your own computer).
+//      - "gemini": Google's free-tier embedding API — no server to host,
+//        works immediately in any deployment (Render, Railway, etc.) with
+//        just an API key. Same approach used for LawHelpZone in production
+//        after self-hosting Ollama (e.g. on a free Oracle VM) proved to be
+//        more setup friction than it was worth for a small project.
+//
+//    Using Ollama's /api/embed (not the older /api/embeddings): it accepts
+//    an array of texts and returns all their vectors in ONE request.
 // ─────────────────────────────────────────────────────────────────────────
-const OLLAMA_EMBED_URL = 'http://localhost:11434/api/embed';
+const EMBEDDING_PROVIDER = process.env.EMBEDDING_PROVIDER || 'ollama'; // 'ollama' | 'gemini'
+const OLLAMA_EMBED_URL = `${process.env.OLLAMA_URL || 'http://localhost:11434'}/api/embed`;
+const GEMINI_EMBED_MODEL = 'text-embedding-004'; // 768 dimensions — matches nomic-embed-text's output size
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 async function getEmbedding(text) {
   const [embedding] = await getEmbeddingsBatch([text]);
@@ -166,6 +173,13 @@ async function getEmbedding(text) {
 }
 
 async function getEmbeddingsBatch(texts) {
+  if (EMBEDDING_PROVIDER === 'gemini') {
+    return getEmbeddingsBatchGemini(texts);
+  }
+  return getEmbeddingsBatchOllama(texts);
+}
+
+async function getEmbeddingsBatchOllama(texts) {
   const response = await fetch(OLLAMA_EMBED_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -176,6 +190,29 @@ async function getEmbeddingsBatch(texts) {
   }
   const data = await response.json();
   return data.embeddings; // array of vectors, same order as input texts
+}
+
+async function getEmbeddingsBatchGemini(texts) {
+  if (!GEMINI_API_KEY) {
+    throw new Error('GEMINI_API_KEY is not set — required when EMBEDDING_PROVIDER=gemini');
+  }
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_EMBED_MODEL}:batchEmbedContents?key=${GEMINI_API_KEY}`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      requests: texts.map((text) => ({
+        model: `models/${GEMINI_EMBED_MODEL}`,
+        content: { parts: [{ text }] },
+      })),
+    }),
+  });
+  if (!response.ok) {
+    const errText = await response.text().catch(() => '');
+    throw new Error(`Gemini embedding request failed: ${response.status} ${errText}`);
+  }
+  const data = await response.json();
+  return data.embeddings.map((e) => e.values); // array of vectors, same order as input texts
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -385,7 +422,7 @@ async function retrieveRelevantChunks(userId, question, topK = 6, options = {}) 
 //    every chunk in the project.
 // ─────────────────────────────────────────────────────────────────────────
 // Parses the re-ranker's response into [{index, score}, ...].
-// llama-3.1-8b-instant doesn't reliably stick to "JSON only" instructions —
+// openai/gpt-oss-20b doesn't reliably stick to "JSON only" instructions —
 // in practice it often outputs lines like "[3] - 8" or
 // "[10] File: routes/stripeRoutes.js - 10 (explanation...)", sometimes with
 // a preamble sentence before the list. Rather than fight the model into
@@ -451,7 +488,7 @@ Respond with ONLY a JSON array of {"index": number, "score": number}, sorted by 
 
   try {
     const completion = await groq.chat.completions.create({
-      model: 'llama-3.1-8b-instant', // small/fast model — this is a scoring pass, not generation
+      model: 'openai/gpt-oss-20b', // small/fast model — this is a scoring pass, not generation
       messages: [{ role: 'user', content: prompt }],
       temperature: 0,
       max_tokens: 800,

@@ -204,7 +204,7 @@ The top 5 most impactful things the team should do next, in priority order.
 What the codebase does well — be genuine, not generic.`;
 
   const completion = await groq.chat.completions.create({
-    model: 'llama-3.3-70b-versatile',
+    model: 'openai/gpt-oss-120b',
     messages: [
       { role: 'system', content: PROJECT_ANALYST_SYSTEM_PROMPT },
       { role: 'user', content: analysisPrompt },
@@ -234,7 +234,7 @@ exports.askAboutProject = async (fileTree, files, conversationHistory, userQuest
   ];
 
   const completion = await groq.chat.completions.create({
-    model: 'llama-3.3-70b-versatile',
+    model: 'openai/gpt-oss-120b',
     messages,
     temperature: 0.5,
     max_tokens: 1500,
@@ -269,7 +269,7 @@ exports.askAboutProjectRAG = async (relevantChunks, conversationHistory, userQue
   ];
 
   const completion = await groq.chat.completions.create({
-    model: 'llama-3.3-70b-versatile',
+    model: 'openai/gpt-oss-120b',
     messages,
     temperature: 0.5,
     max_tokens: 1500,
