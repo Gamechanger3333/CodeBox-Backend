@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "CodeBox API — AI-powered coding assistant backend",
   "main": "app.js",
-  "author": "Muhammad Atif",
+  "author": "Razia",
   "license": "ISC",
   "engines": {
     "node": ">=18.0.0 <23.0.0"
