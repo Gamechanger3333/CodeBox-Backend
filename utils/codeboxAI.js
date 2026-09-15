@@ -67,7 +67,7 @@ exports.getCodeBoxAIResponse = async (messages) => {
   }));
 
   const completion = await groq.chat.completions.create({
-    model: 'llama-3.3-70b-versatile',
+    model: 'openai/gpt-oss-120b',
     messages: [
       { role: 'system', content: CODEBOX_SYSTEM_PROMPT },
       ...formattedMessages,
@@ -103,7 +103,7 @@ Please provide:
 Be specific and actionable.`;
 
   const completion = await groq.chat.completions.create({
-    model: 'llama-3.3-70b-versatile',
+    model: 'openai/gpt-oss-120b',
     messages: [
       { role: 'system', content: CODEBOX_SYSTEM_PROMPT },
       { role: 'user', content: prompt },
@@ -122,7 +122,7 @@ Be specific and actionable.`;
  */
 exports.generateConversationTitle = async (firstMessage) => {
   const completion = await groq.chat.completions.create({
-    model: 'llama-3.1-8b-instant',
+    model: 'openai/gpt-oss-20b',
     messages: [
       {
         role: 'user',
@@ -151,7 +151,7 @@ Return ONLY the title, nothing else.`,
  */
 exports.detectLanguage = async (code) => {
   const completion = await groq.chat.completions.create({
-    model: 'llama-3.1-8b-instant',
+    model: 'openai/gpt-oss-20b',
     messages: [
       {
         role: 'user',

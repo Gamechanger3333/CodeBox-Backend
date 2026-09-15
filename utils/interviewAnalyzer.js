@@ -64,7 +64,7 @@ Respond with ONLY a JSON array, no other text, in exactly this format:
 ]`;
 
   const completion = await groq.chat.completions.create({
-    model: 'llama-3.3-70b-versatile',
+    model: 'openai/gpt-oss-120b',
     messages: [
       { role: 'system', content: INTERVIEWER_SYSTEM_PROMPT },
       { role: 'user', content: prompt },
@@ -148,7 +148,7 @@ Respond with ONLY valid JSON, no other text, in exactly this format:
 { "followUp": "...", "feedback": "...", "teach": "..." }`;
 
   const completion = await groq.chat.completions.create({
-    model: 'llama-3.3-70b-versatile',
+    model: 'openai/gpt-oss-120b',
     messages: [
       { role: 'system', content: INTERVIEWER_SYSTEM_PROMPT },
       { role: 'user', content: prompt },
@@ -222,7 +222,7 @@ One honest paragraph: are they ready for a real interview on this project at a c
 Concrete topics/concepts to study, tied directly to the weak areas — not generic interview advice.`;
 
   const completion = await groq.chat.completions.create({
-    model: 'llama-3.3-70b-versatile',
+    model: 'openai/gpt-oss-120b',
     messages: [
       { role: 'system', content: INTERVIEWER_SYSTEM_PROMPT },
       { role: 'user', content: prompt },
