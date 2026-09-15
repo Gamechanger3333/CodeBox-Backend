@@ -19,9 +19,9 @@ res.cookie('token', token, {
   httpOnly: true,
   secure: true,        // sirf HTTPS pe bheji jayegi (Render/Vercel dono HTTPS hain)
   sameSite: 'none',    // cross-domain cookies allow karta hai
+  maxAge: cookieExpiresIn * 24 * 60 * 60 * 1000, // days -> ms
 });
 
-  
 
   const { password, otpCode, otpExpiry, otpAttempts, ...userData } = user;
   res.status(statusCode).json({ status: 'success', token, data: { user: userData } });
