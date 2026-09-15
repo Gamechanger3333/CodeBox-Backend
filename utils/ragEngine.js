@@ -164,7 +164,10 @@ function chunkAllFiles(files) {
 // ─────────────────────────────────────────────────────────────────────────
 const EMBEDDING_PROVIDER = process.env.EMBEDDING_PROVIDER || 'ollama'; // 'ollama' | 'gemini'
 const OLLAMA_EMBED_URL = `${process.env.OLLAMA_URL || 'http://localhost:11434'}/api/embed`;
-const GEMINI_EMBED_MODEL = 'text-embedding-004'; // 768 dimensions — matches nomic-embed-text's output size
+const GEMINI_EMBED_MODEL = 'gemini-embedding-001'; // text-embedding-004 was shut down Jan 14, 2026
+const GEMINI_EMBED_DIMENSIONS = 768; // requested explicitly below — matches nomic-embed-text's output size,
+                                      // so it stays compatible with existing Ollama-embedded chunks/DB data
+                                      // (gemini-embedding-001 defaults to 3072 dims otherwise)
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 async function getEmbedding(text) {
@@ -204,6 +207,7 @@ async function getEmbeddingsBatchGemini(texts) {
       requests: texts.map((text) => ({
         model: `models/${GEMINI_EMBED_MODEL}`,
         content: { parts: [{ text }] },
+        outputDimensionality: GEMINI_EMBED_DIMENSIONS,
       })),
     }),
   });

@@ -97,8 +97,8 @@ exports.logout = (req, res) => {
   res.cookie('token', '', {
     expires: new Date(Date.now() + 10 * 1000),
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    secure: true,       // must match login's cookie attributes exactly, or the browser
+    sameSite: 'none',   // won't treat this as the same cookie and won't clear it
   });
   res.status(200).json({ status: 'success', message: 'Logged out successfully' });
 };

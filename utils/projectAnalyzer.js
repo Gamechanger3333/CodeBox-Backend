@@ -33,7 +33,11 @@ const SKIP_FILES = new Set([
 ]);
 
 const MAX_FILE_SIZE = 20 * 1024;  // 20 KB per file
-const MAX_TOTAL_CHARS = 28000;    // ~7k tokens — fits Groq free tier (12k TPM limit)
+// Groq's on_demand tier caps at 8,000 TPM (input + output tokens combined).
+// 18,000 chars (~4.5k tokens) leaves headroom for the system prompt (~150
+// tokens), the analysis instructions (~300 tokens), and the completion's
+// max_tokens budget below — keeping total requests safely under 8,000.
+const MAX_TOTAL_CHARS = 18000;
 
 function shouldIncludeFile(filePath) {
   const parts = filePath.split('/');
@@ -210,7 +214,7 @@ What the codebase does well — be genuine, not generic.`;
       { role: 'user', content: analysisPrompt },
     ],
     temperature: 0.4,
-    max_tokens: 2000,
+    max_tokens: 1300, // trimmed from 2000 so input+output together stay under the 8,000 TPM cap
   });
 
   return completion.choices[0]?.message?.content || 'Analysis failed.';
