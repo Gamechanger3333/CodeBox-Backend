@@ -9,6 +9,7 @@ const conversationRoutes = require('./routes/conversationRoutes');
 const authRoutes = require('./routes/authRoutes');
 
 const app = express();
+app.set('trust proxy', 1);
 
 app.use(helmet());
 

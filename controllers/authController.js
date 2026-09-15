@@ -15,13 +15,13 @@ const createSendToken = (user, statusCode, res) => {
   const token = signToken(user.id);
   const cookieExpiresIn = parseInt(process.env.JWT_COOKIE_EXPIRES_IN || '7');
 
-  res.cookie('token', token, {
-    expires: new Date(Date.now() + cookieExpiresIn * 24 * 60 * 60 * 1000),
-    // httpOnly: JS can never read the cookie — prevents XSS token theft.
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-  });
+res.cookie('token', token, {
+  httpOnly: true,
+  secure: true,        // sirf HTTPS pe bheji jayegi (Render/Vercel dono HTTPS hain)
+  sameSite: 'none',    // cross-domain cookies allow karta hai
+});
+
+  
 
   const { password, otpCode, otpExpiry, otpAttempts, ...userData } = user;
   res.status(statusCode).json({ status: 'success', token, data: { user: userData } });
