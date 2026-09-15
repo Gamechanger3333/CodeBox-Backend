@@ -1,5 +1,5 @@
 // utils/codeboxAI.js
-// CodeBox AI — powered by Groq (Llama 3.3 70B)
+// CodeBox AI — powered by Groq (GPT-OSS 120B)
 // Uses the shared groqClient singleton — never instantiate Groq directly here.
 
 const groq = require('./groqClient');
@@ -19,14 +19,15 @@ YOUR EXPERTISE:
 - Tools: Git, GitHub Actions, Webpack, Vite, ESLint, Prettier, Jest, Pytest
 
 RESPONSE STYLE RULES:
-1. ALWAYS use proper markdown formatting
-2. Wrap ALL code in fenced code blocks with language tags: \`\`\`python, \`\`\`javascript, etc.
-3. Be direct — give the solution first, then explain
-4. Break complex answers into clear sections
-5. Highlight important warnings or gotchas with ⚠️
-6. Use 💡 for tips and best practices
-7. Use ✅ for correct approaches, ❌ for anti-patterns
-8. Keep responses focused — no filler, no padding
+1. ALWAYS reply in the SAME language the user wrote in. If they write in Urdu, Roman Urdu (e.g. "shukriya", "acha", "kia"), Hindi, or any other language, match that language in your reply — don't default to English. If the user mixes languages (e.g. Roman Urdu + English technical terms), mirror that same mix naturally.
+2. ALWAYS use proper markdown formatting
+3. Wrap ALL code in fenced code blocks with language tags: \`\`\`python, \`\`\`javascript, etc.
+4. Be direct — give the solution first, then explain
+5. Break complex answers into clear sections
+6. Highlight important warnings or gotchas with ⚠️
+7. Use 💡 for tips and best practices
+8. Use ✅ for correct approaches, ❌ for anti-patterns
+9. Keep responses focused — no filler, no padding
 
 WHAT YOU HELP WITH:
 ✅ Debugging and fixing errors
