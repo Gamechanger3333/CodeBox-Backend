@@ -6,9 +6,28 @@ Node.js/Express backend for the CodeBox online coding platform.
 - Node.js + Express.js
 - PostgreSQL + Prisma (ORM)
 - JWT Authentication (httpOnly cookies)
-- Groq (Llama 3.3 70B) for AI features
+- Groq (GPT-OSS 120B) for AI features
 - Resend for transactional email (OTP password reset)
 - REST API
+
+## 🎭 Demo Access
+
+Try the app instantly, no signup or OTP verification required:
+
+```
+Email: demo@codebox.com
+Password: Demo@1234
+```
+(Note: demo data resets automatically on every demo login — real signup is also available.)
+
+Click **"Try Demo Account"** on the login page to auto-fill and sign in with one click.
+
+### How it works
+- The demo account is a normal `User` row — same login/JWT flow as everyone else, no special-cased auth path.
+- On every successful demo login, its conversations, snippets, and any uploaded project/interview data are wiped and reseeded with a curated sample set (5 chat conversations, 15 code snippets) — see `utils/demoUser.js`.
+- The demo email is reserved: signing up with it is blocked.
+- To (re)seed the demo account manually (e.g. first deploy): `npm run seed`.
+- Configure the account via `DEMO_USER_EMAIL` / `DEMO_USER_PASSWORD_SEED` in `.env` (see `.env.example`).
 
 ## ⚙️ Setup Locally
 
@@ -22,7 +41,8 @@ Node.js/Express backend for the CodeBox online coding platform.
    - `EMAIL_FROM` — a verified sender address (required in production; falls back to the Resend sandbox address in development)
 4. Run database migrations: `npx prisma migrate deploy` (or `npx prisma migrate dev` locally)
 5. Generate the Prisma client: `npx prisma generate`
-6. Run `npm run dev` (development, with auto-reload) or `npm start` (production)
+6. Seed the demo account: `npm run seed`
+7. Run `npm run dev` (development, with auto-reload) or `npm start` (production)
 
 ## 📋 Notes
 

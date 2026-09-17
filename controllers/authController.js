@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const { validationResult } = require('express-validator');
 const prisma = require('../models/prismaClient');
 const { sendPasswordResetOTP, generateOTP } = require('../utils/emailService');
+const { isDemoUserEmail, resetDemoUserData } = require('../utils/demoUser');
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -49,6 +50,14 @@ exports.signup = async (req, res) => {
       return res.status(400).json({ status: 'error', message: 'Passwords do not match' });
     }
 
+    // The demo email is reserved for the "Try Demo Account" shortcut — its
+    // data is wiped and reseeded on every login (see utils/demoUser.js), so
+    // a real signup on this address would just get erased on the next demo
+    // visit. Block it here rather than letting someone register it.
+    if (isDemoUserEmail(email)) {
+      return res.status(400).json({ status: 'error', message: 'This email is reserved for the demo account. Please use a different email to sign up.' });
+    }
+
     const existingUser = await prisma.user.findUnique({ where: { email } });
     if (existingUser) {
       return res.status(400).json({ status: 'error', message: 'An account with this email already exists' });
@@ -82,6 +91,14 @@ exports.login = async (req, res, next) => {
     const passwordsMatch = await bcrypt.compare(password, user.password);
     if (!passwordsMatch) {
       return res.status(401).json({ status: 'error', message: 'Incorrect email or password' });
+    }
+
+    // Demo account: reset its data back to the clean sample set on every
+    // login, so each demo visitor always starts from the same curated
+    // state. See utils/demoUser.js for why "reset on login" was chosen
+    // over a cron job or read-only mode for this project.
+    if (isDemoUserEmail(user.email)) {
+      await resetDemoUserData(user.id);
     }
 
     createSendToken(user, 200, res);
