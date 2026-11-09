@@ -1,0 +1,228 @@
+{
+  "DEMO_CONVERSATIONS": [
+    {
+      "title": "Fix async race condition in cart checkout",
+      "isPinned": true,
+      "messages": [
+        {
+          "sender": "user",
+          "content": "My checkout sometimes charges the cart twice if the user double-clicks 'Pay'. How do I stop that?"
+        },
+        {
+          "sender": "bot",
+          "content": "That's a classic double-submit race condition. The fix is to disable the button optimistically **and** guard the handler itself, not just the UI:\n\n```javascript\nlet isSubmitting = false;\n\nasync function handlePay() {\n  if (isSubmitting) return;\n  isSubmitting = true;\n  payButton.disabled = true;\n\n  try {\n    await chargeCart();\n  } finally {\n    isSubmitting = false;\n    payButton.disabled = false;\n  }\n}\n```\n\n⚠️ Disabling the button alone isn't enough — a fast second click can fire before React re-renders. The `isSubmitting` flag is the real guard."
+        },
+        {
+          "sender": "user",
+          "content": "What about on the backend? Should I add idempotency there too?"
+        },
+        {
+          "sender": "bot",
+          "content": "Yes — always. Frontend guards prevent *most* double-clicks, but you should never trust the client alone for money-moving operations.\n\n💡 Add an idempotency key generated once per checkout attempt (e.g. a UUID stored in the form) and pass it in the request header. On the backend, check if you've already processed that key before charging again:\n\n```javascript\nconst existing = await db.payments.findUnique({ where: { idempotencyKey } });\nif (existing) return res.json(existing); // already processed, return the same result\n```\n\n✅ This makes retries and double-clicks fully safe, even across network hiccups."
+        }
+      ]
+    },
+    {
+      "title": "React useEffect infinite loop",
+      "isPinned": false,
+      "messages": [
+        {
+          "sender": "user",
+          "content": "My useEffect keeps firing forever and I can't figure out why."
+        },
+        {
+          "sender": "bot",
+          "content": "The most common cause is an object or array in the dependency array that gets a new reference every render:\n\n```javascript\n// ❌ options is a new object every render — effect fires every time\nconst options = { limit: 10 };\nuseEffect(() => { fetchData(options); }, [options]);\n```\n\n```javascript\n// ✅ move it outside, or memoize it\nconst options = useMemo(() => ({ limit: 10 }), []);\nuseEffect(() => { fetchData(options); }, [options]);\n```"
+        },
+        {
+          "sender": "user",
+          "content": "That was it, thanks! One more thing — should I add fetchData to the dependency array too?"
+        },
+        {
+          "sender": "bot",
+          "content": "If `fetchData` is defined inside the component, yes — ESLint's `react-hooks/exhaustive-deps` rule will flag this. Wrap it in `useCallback` so it doesn't get a new identity every render either:\n\n```javascript\nconst fetchData = useCallback(async (opts) => {\n  const res = await api.get('/items', { params: opts });\n  setItems(res.data);\n}, []); // deps of fetchData itself\n\nuseEffect(() => { fetchData(options); }, [fetchData, options]);\n```"
+        }
+      ]
+    },
+    {
+      "title": "PostgreSQL slow query — missing index?",
+      "isPinned": false,
+      "messages": [
+        {
+          "sender": "user",
+          "content": "This query takes 4 seconds on 200k rows:\n```sql\nSELECT * FROM orders WHERE customer_id = 42 ORDER BY created_at DESC;\n```"
+        },
+        {
+          "sender": "bot",
+          "content": "Run `EXPLAIN ANALYZE` on it first — but 9 times out of 10 with this pattern it's a missing composite index. You're filtering by `customer_id` *and* sorting by `created_at`, so a single-column index on just `customer_id` still forces a sort at query time.\n\n```sql\nCREATE INDEX idx_orders_customer_created\n  ON orders (customer_id, created_at DESC);\n```\n\n💡 Matching the index column order to your WHERE + ORDER BY lets Postgres walk the index in order and skip the sort step entirely."
+        },
+        {
+          "sender": "user",
+          "content": "Ran EXPLAIN ANALYZE — it confirms Seq Scan. Adding the index now, thanks!"
+        },
+        {
+          "sender": "bot",
+          "content": "Perfect, that confirms it. After adding the index, run `EXPLAIN ANALYZE` again — you should see `Index Scan using idx_orders_customer_created` replace the `Seq Scan`, and the cost/time drop dramatically. ✅"
+        }
+      ]
+    },
+    {
+      "title": "Docker container exits immediately",
+      "isPinned": false,
+      "messages": [
+        {
+          "sender": "user",
+          "content": "My Node app container starts then exits with code 0 right away, no errors logged."
+        },
+        {
+          "sender": "bot",
+          "content": "Exit code 0 (not a crash) with no logs almost always means the container had nothing keeping the process alive — usually the CMD ran a script that finished immediately instead of starting a long-running server.\n\nCheck your Dockerfile's CMD:\n```dockerfile\n# ❌ if this runs a one-off script instead of `node app.js`, container exits after it finishes\nCMD [\"npm\", \"run\", \"build\"]\n```\n```dockerfile\n# ✅ make sure the final CMD actually starts the server\nCMD [\"node\", \"app.js\"]\n```"
+        },
+        {
+          "sender": "user",
+          "content": "That was it — I had 'npm run build' as the last CMD instead of 'npm start'. Fixed now."
+        },
+        {
+          "sender": "bot",
+          "content": "🎉 Glad that fixed it. One tip going forward: `docker logs <container>` right after a fast exit is your best friend — if it's empty, you're almost always looking at a CMD/entrypoint issue rather than an app crash."
+        }
+      ]
+    },
+    {
+      "title": "JWT vs session cookies — which for our API?",
+      "isPinned": false,
+      "messages": [
+        {
+          "sender": "user",
+          "content": "Should our new mobile app use JWTs or session cookies for auth?"
+        },
+        {
+          "sender": "bot",
+          "content": "For a mobile app talking to a REST API, JWTs are usually the better fit:\n\n✅ **JWT** — stateless, works naturally across app restarts, no server-side session store needed, easy to attach as a `Bearer` header.\n❌ **Session cookies** — awkward on mobile (no browser cookie jar by default), and ties you to a server-side session store that has to be shared/replicated if you scale horizontally.\n\n⚠️ If you do go with JWTs, keep the access token short-lived (e.g. 15 min) and pair it with a refresh token, rather than issuing a single long-lived token."
+        },
+        {
+          "sender": "user",
+          "content": "What about our existing web app — it already uses httpOnly cookies for the JWT."
+        },
+        {
+          "sender": "bot",
+          "content": "That's actually a great middle ground for the web: you get JWT's statelessness *and* httpOnly cookies' protection against XSS token theft (JS on the page can't read the cookie). Keep that as-is for web, and just have the mobile app request the same JWT but store it in secure device storage (Keychain / Keystore) instead of a cookie, since mobile has no cookie jar to piggyback on."
+        }
+      ]
+    }
+  ],
+  "DEMO_SNIPPETS": [
+    {
+      "title": "Debounce function",
+      "language": "javascript",
+      "isPublic": true,
+      "description": "Delays invoking a function until after a pause in calls — classic for search inputs.",
+      "code": "function debounce(fn, delay = 300) {\n  let timer;\n  return (...args) => {\n    clearTimeout(timer);\n    timer = setTimeout(() => fn(...args), delay);\n  };\n}"
+    },
+    {
+      "title": "Deep clone via structuredClone",
+      "language": "javascript",
+      "isPublic": true,
+      "description": "Modern replacement for JSON.parse(JSON.stringify(x)) — handles dates, Maps, Sets.",
+      "code": "const cloned = structuredClone(original);"
+    },
+    {
+      "title": "Python retry decorator",
+      "language": "python",
+      "isPublic": true,
+      "description": "Retries a flaky function with exponential backoff.",
+      "code": "import time, functools\n\ndef retry(times=3, delay=1):\n    def decorator(fn):\n        @functools.wraps(fn)\n        def wrapper(*args, **kwargs):\n            for attempt in range(times):\n                try:\n                    return fn(*args, **kwargs)\n                except Exception as e:\n                    if attempt == times - 1:\n                        raise\n                    time.sleep(delay * (2 ** attempt))\n        return wrapper\n    return decorator"
+    },
+    {
+      "title": "SQL: find duplicate rows",
+      "language": "sql",
+      "isPublic": true,
+      "description": "Finds duplicate emails in a users table.",
+      "code": "SELECT email, COUNT(*)\nFROM users\nGROUP BY email\nHAVING COUNT(*) > 1;"
+    },
+    {
+      "title": "React custom useDebounce hook",
+      "language": "javascript",
+      "isPublic": true,
+      "description": "Debounces a fast-changing value, e.g. a search input.",
+      "code": "import { useState, useEffect } from 'react';\n\nfunction useDebounce(value, delay = 300) {\n  const [debounced, setDebounced] = useState(value);\n  useEffect(() => {\n    const t = setTimeout(() => setDebounced(value), delay);\n    return () => clearTimeout(t);\n  }, [value, delay]);\n  return debounced;\n}"
+    },
+    {
+      "title": "TypeScript utility: DeepPartial<T>",
+      "language": "typescript",
+      "isPublic": true,
+      "description": "Makes every nested property of a type optional.",
+      "code": "type DeepPartial<T> = T extends object\n  ? { [K in keyof T]?: DeepPartial<T[K]> }\n  : T;"
+    },
+    {
+      "title": "Express async error wrapper",
+      "language": "javascript",
+      "isPublic": true,
+      "description": "Avoids try/catch boilerplate in every async route handler.",
+      "code": "const asyncHandler = (fn) => (req, res, next) =>\n  Promise.resolve(fn(req, res, next)).catch(next);\n\n// usage:\nrouter.get('/orders', asyncHandler(async (req, res) => {\n  const orders = await db.orders.findMany();\n  res.json(orders);\n}));"
+    },
+    {
+      "title": "Python: flatten nested list",
+      "language": "python",
+      "isPublic": false,
+      "description": "Flattens an arbitrarily nested list using recursion.",
+      "code": "def flatten(lst):\n    result = []\n    for item in lst:\n        if isinstance(item, list):\n            result.extend(flatten(item))\n        else:\n            result.append(item)\n    return result"
+    },
+    {
+      "title": "CSS: truncate text with ellipsis",
+      "language": "css",
+      "isPublic": true,
+      "description": "Single-line text truncation with \"...\".",
+      "code": ".truncate {\n  white-space: nowrap;\n  overflow: hidden;\n  text-overflow: ellipsis;\n}"
+    },
+    {
+      "title": "Bash: find and kill process on port",
+      "language": "bash",
+      "isPublic": true,
+      "description": "Kills whatever process is holding a given port (default 3000).",
+      "code": "lsof -ti:3000 | xargs kill -9"
+    },
+    {
+      "title": "Go: simple HTTP health check handler",
+      "language": "go",
+      "isPublic": true,
+      "description": "Minimal /health endpoint for load balancer checks.",
+      "code": "func healthHandler(w http.ResponseWriter, r *http.Request) {\n\tw.WriteHeader(http.StatusOK)\n\tw.Write([]byte(`{\"status\":\"ok\"}`))\n}"
+    },
+    {
+      "title": "JavaScript: chunk an array",
+      "language": "javascript",
+      "isPublic": true,
+      "description": "Splits an array into fixed-size chunks.",
+      "code": "function chunk(arr, size) {\n  return Array.from({ length: Math.ceil(arr.length / size) }, (_, i) =>\n    arr.slice(i * size, i * size + size)\n  );\n}"
+    },
+    {
+      "title": "SQL: running total with window function",
+      "language": "sql",
+      "isPublic": false,
+      "description": "Cumulative sum of order totals per customer, ordered by date.",
+      "code": "SELECT\n  customer_id,\n  order_date,\n  amount,\n  SUM(amount) OVER (\n    PARTITION BY customer_id\n    ORDER BY order_date\n  ) AS running_total\nFROM orders;"
+    },
+    {
+      "title": "Python: context manager for timing",
+      "language": "python",
+      "isPublic": true,
+      "description": "Times a block of code using a with-statement.",
+      "code": "import time\nfrom contextlib import contextmanager\n\n@contextmanager\ndef timer(label='block'):\n    start = time.perf_counter()\n    yield\n    print(f\"{label} took {time.perf_counter() - start:.3f}s\")\n\n# usage:\n# with timer('db query'):\n#     run_query()"
+    },
+    {
+      "title": "JavaScript: simple LRU cache",
+      "language": "javascript",
+      "isPublic": true,
+      "description": "Fixed-size cache that evicts the least recently used entry.",
+      "code": "class LRUCache {\n  constructor(limit = 50) {\n    this.limit = limit;\n    this.map = new Map();\n  }\n  get(key) {\n    if (!this.map.has(key)) return undefined;\n    const val = this.map.get(key);\n    this.map.delete(key);\n    this.map.set(key, val); // refresh recency\n    return val;\n  }\n  set(key, val) {\n    if (this.map.has(key)) this.map.delete(key);\n    else if (this.map.size >= this.limit) this.map.delete(this.map.keys().next().value);\n    this.map.set(key, val);\n  }\n}"
+    },
+    {
+      "title": "Regex: validate email (pragmatic)",
+      "language": "javascript",
+      "isPublic": false,
+      "description": "A \"good enough\" email regex for client-side hints — always re-validate server-side.",
+      "code": "const isLikelyEmail = (str) => /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(str);"
+    }
+  ]
+}
