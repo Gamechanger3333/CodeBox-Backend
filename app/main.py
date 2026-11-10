@@ -1,8 +1,9 @@
 """FastAPI application: wiring only (middleware, error handlers, routers)."""
 from __future__ import annotations
 
+import asyncio
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -23,16 +24,27 @@ log = logging.getLogger("codebox")
 AUTH_PATHS = ("/api/signup", "/api/login", "/api/logout", "/api/forgot-password", "/api/verify-otp", "/api/reset-password")
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Startup check only logs - the API stays up even if the DB is briefly unreachable."""
+async def _check_database() -> None:
     try:
         async with engine.connect() as conn:
             await conn.execute(text("SELECT 1"))
         log.info("Database connected successfully")
     except Exception as exc:  # noqa: BLE001
         log.error("Database connection failed: %s", exc)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """The startup DB check only LOGS and runs in the background.
+
+    It must not block startup: a sleeping Neon database can take 30 s+ to wake up, and the hosting platform
+    (Render) only routes traffic once the port is open. The API therefore starts immediately.
+    """
+    check = asyncio.create_task(_check_database())
     yield
+    check.cancel()
+    with suppress(asyncio.CancelledError):
+        await check
     await engine.dispose()
 
 

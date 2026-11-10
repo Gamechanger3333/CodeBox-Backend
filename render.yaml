@@ -1,0 +1,30 @@
+# Render "Blueprint": New + -> Blueprint -> pick this repo. Secrets (sync: false) are asked for in the dashboard.
+services:
+  - type: web
+    name: codebox-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips='*'
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8          # the version the tests ran on; if Render says it is unavailable, pick another 3.12.x
+      - key: NODE_ENV
+        value: production      # hides error details and turns off /docs
+      - key: FRONTEND_URL
+        sync: false            # e.g. https://your-app.vercel.app  (exact URL, no trailing slash)
+      - key: DATABASE_URL
+        sync: false            # Neon pooled connection string
+      - key: JWT_SECRET
+        sync: false            # SAME value as the old backend, so existing logins keep working
+      - key: GROQ_API_KEY
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+      - key: EMBEDDING_PROVIDER
+        value: gemini          # Render cannot run Ollama; use the hosted embeddings
+      - key: GEMINI_API_KEY
+        sync: false

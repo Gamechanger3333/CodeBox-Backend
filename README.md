@@ -1,6 +1,7 @@
 # CodeBox API — FastAPI edition
 
-A drop-in replacement for the Express/Prisma CodeBox backend, rewritten in **Python 3.12 + FastAPI + async SQLAlchemy**.
+This repository now contains **only** the FastAPI backend (the old Express/Prisma code was removed; it is
+preserved in git under the tag `express-final`). It replaces the Express/Prisma CodeBox backend, rewritten in **Python 3.12 + FastAPI + async SQLAlchemy**.
 Same URLs, same JSON, same cookies, **same PostgreSQL database** — the Next.js frontend works unchanged
 (point `NEXT_PUBLIC_API_URL` at this server, still ending in `/api`).
 
@@ -88,3 +89,24 @@ scripts/               init_db, seed, eval_retrieval
 
 Real calls to Groq / Ollama / Gemini / Resend (no internet in the build sandbox — they are mocked in tests) and the browser UI.
 Do one manual pass with real keys: sign up, chat, upload a zip, ask a question, run an interview, reset a password.
+
+
+## Deploy on Render (free tier)
+
+1. Push this repo to GitHub. **Never commit `.env`** (it is in `.gitignore`).
+2. Render dashboard -> New -> Web Service -> pick the repo (or New -> Blueprint, it reads `render.yaml`).
+3. Runtime **Python 3**, Build: `pip install -r requirements.txt`,
+   Start: `uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips='*'`, Health check path: `/health`.
+4. Environment variables: `NODE_ENV=production`, `DATABASE_URL` (Neon pooled URL), `JWT_SECRET` (same as before),
+   `FRONTEND_URL` (exact Vercel URL, no trailing slash), `GROQ_API_KEY`, `RESEND_API_KEY`, `EMAIL_FROM`,
+   `EMBEDDING_PROVIDER=gemini` + `GEMINI_API_KEY` (Render cannot run Ollama), `PYTHON_VERSION=3.12.8`.
+5. After the first deploy, open **Shell** on the service once and run `python -m scripts.init_db`
+   (creates only missing tables, e.g. `InterviewSession`).
+6. Frontend: set `NEXT_PUBLIC_API_URL=https://<your-service>.onrender.com/api` and redeploy it.
+   Cookies are `Secure; SameSite=None` so frontend and API may live on different domains (HTTPS only).
+
+Free tier note: the service sleeps after ~15 min idle and the Neon database sleeps too, so the first request
+after a pause can take 30-60 s. The API starts immediately; the database check runs in the background.
+
+Which backend answers on a port? `/docs` exists only on FastAPI (and only when `NODE_ENV` is not `production`);
+`/health` is identical on both versions, so it cannot tell them apart.

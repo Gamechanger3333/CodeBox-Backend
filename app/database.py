@@ -57,7 +57,8 @@ def build_engine_args(raw_url: str) -> tuple[str, dict, dict]:
 
 def create_engine_from_settings() -> AsyncEngine:
     url, connect_args, pool_kwargs = build_engine_args(get_settings().database_url)
-    return create_async_engine(url, pool_pre_ping=True, connect_args=connect_args, **pool_kwargs)
+    # pool_pre_ping + pool_recycle: Neon closes idle connections, so stale ones are replaced instead of failing a request.
+    return create_async_engine(url, pool_pre_ping=True, pool_recycle=300, connect_args=connect_args, **pool_kwargs)
 
 
 engine: AsyncEngine = create_engine_from_settings()
