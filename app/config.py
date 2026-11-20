@@ -47,6 +47,12 @@ class Settings(BaseSettings):
         return v or None
 
     @property
+    def frontend_origins(self) -> list[str]:
+        """FRONTEND_URL may hold several comma-separated origins. A browser's Origin header never has a trailing
+        slash, so 'https://app.vercel.app/' would silently never match - we strip it."""
+        return [o.strip().rstrip("/") for o in self.frontend_url.split(",") if o.strip()]
+
+    @property
     def is_production(self) -> bool:
         return self.node_env == "production"
 

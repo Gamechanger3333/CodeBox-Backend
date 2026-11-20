@@ -1,4 +1,5 @@
 # Render "Blueprint": New + -> Blueprint -> pick this repo. Secrets (sync: false) are asked for in the dashboard.
+# Run `python -m scripts.init_db` and `python -m scripts.seed` ONCE from your own computer (free plans have no Shell).
 services:
   - type: web
     name: codebox-api

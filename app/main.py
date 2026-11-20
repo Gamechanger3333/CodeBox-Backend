@@ -65,7 +65,7 @@ def create_app() -> FastAPI:
     app.middleware("http")(security_headers_middleware)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[settings.frontend_url],
+        allow_origins=settings.frontend_origins,
         allow_credentials=True,  # needed so the browser sends/accepts the httpOnly cookie
         allow_methods=["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE"],
         allow_headers=["*"],
@@ -96,6 +96,11 @@ def create_app() -> FastAPI:
         return JSONResponse(status_body(str(exc.detail)), status_code=exc.status_code)
 
     # ── routes ──
+    @app.api_route("/", methods=["GET", "HEAD"], include_in_schema=False)
+    async def root():
+        """What you see when you open the bare URL (and what Render's default probes hit)."""
+        return {"status": "ok", "service": "CodeBox API", "message": "API is running. Endpoints are under /api; health check: /health"}
+
     @app.get("/health", tags=["health"])
     async def health():
         return {"status": "ok", "service": "CodeBox API"}

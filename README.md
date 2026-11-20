@@ -100,9 +100,10 @@ Do one manual pass with real keys: sign up, chat, upload a zip, ask a question, 
 4. Environment variables: `NODE_ENV=production`, `DATABASE_URL` (Neon pooled URL), `JWT_SECRET` (same as before),
    `FRONTEND_URL` (exact Vercel URL, no trailing slash), `GROQ_API_KEY`, `RESEND_API_KEY`, `EMAIL_FROM`,
    `EMBEDDING_PROVIDER=gemini` + `GEMINI_API_KEY` (Render cannot run Ollama), `PYTHON_VERSION=3.12.8`.
-5. After the first deploy, open **Shell** on the service once and run `python -m scripts.init_db`
-   (creates only missing tables, e.g. `InterviewSession`).
-6. Frontend: set `NEXT_PUBLIC_API_URL=https://<your-service>.onrender.com/api` and redeploy it.
+5. Create the missing table + demo account **once from your own computer** (Render's free plan has no Shell):
+   put the same `DATABASE_URL` in your local `.env`, then run `python -m scripts.init_db` and `python -m scripts.seed`.
+6. Frontend (Vercel): set `NEXT_PUBLIC_API_URL=https://<your-service>.onrender.com/api` (**must end with `/api`**) and **redeploy**
+   (Next.js bakes `NEXT_PUBLIC_*` values in at build time). `FRONTEND_URL` on Render must be the exact Vercel URL.
    Cookies are `Secure; SameSite=None` so frontend and API may live on different domains (HTTPS only).
 
 Free tier note: the service sleeps after ~15 min idle and the Neon database sleeps too, so the first request
@@ -110,3 +111,17 @@ after a pause can take 30-60 s. The API starts immediately; the database check r
 
 Which backend answers on a port? `/docs` exists only on FastAPI (and only when `NODE_ENV` is not `production`);
 `/health` is identical on both versions, so it cannot tell them apart.
+
+
+## Troubleshooting
+
+`python -m scripts.doctor` checks Python, packages, `.env`, the database (TCP, SSL, login, tables), the demo account,
+embeddings and the Groq key in one go and prints what to fix. It never prints secrets.
+
+| Symptom in the browser console | Cause |
+|---|---|
+| `.../login` or `.../check_authentication` -> **404** | `NEXT_PUBLIC_API_URL` is missing `/api` (the updated `app/api.js` in the frontend repo also fixes this itself) |
+| CORS error / "No Access-Control-Allow-Origin" | `FRONTEND_URL` on Render does not equal the Vercel URL (several URLs: separate with commas) |
+| Login works but you are logged out on refresh | The browser blocks third-party cookies (Safari, Incognito). Use Chrome, or host frontend and API under one domain |
+| `Try Demo Account` -> 401 | demo user missing: run `python -m scripts.seed` once |
+| `Ask about project` fails | `EMBEDDING_PROVIDER=gemini` + `GEMINI_API_KEY` on Render (Ollama only works locally) |
